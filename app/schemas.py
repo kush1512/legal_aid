@@ -2,7 +2,7 @@ from datetime import date, datetime
 from enum import Enum
 from typing import Any, Literal
 from uuid import UUID
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl, model_validator
 
 class Category(str, Enum):
     property_real_estate = "property_real_estate"
@@ -199,3 +199,42 @@ class ErrorBody(BaseModel):
 
 class ErrorResponse(BaseModel):
     error: ErrorBody
+
+
+class LawyerProfileCreateRequest(BaseModel):
+    display_name: str = Field(min_length=2, max_length=120)
+    bio: str | None = Field(default=None, max_length=3000)
+    bar_council_enrolment: str | None = Field(default=None, max_length=120)
+    jurisdictions: list[str] = Field(default_factory=list, max_length=30)
+    practice_areas: list[Category] = Field(min_length=1, max_length=4)
+    languages: list[str] = Field(default_factory=lambda: ["en"], max_length=20)
+    city: str | None = Field(default=None, max_length=120)
+    state: str | None = Field(default=None, max_length=120)
+
+
+class ReportCreateRequest(BaseModel):
+    post_id: UUID | None = None
+    comment_id: UUID | None = None
+    lawyer_id: UUID | None = None
+    reason: str = Field(min_length=5, max_length=160)
+    details: str | None = Field(default=None, max_length=2500)
+
+    @model_validator(mode="after")
+    def exactly_one_target(self):
+        targets = [self.post_id, self.comment_id, self.lawyer_id]
+        if sum(value is not None for value in targets) != 1:
+            raise ValueError("Exactly one of post_id, comment_id or lawyer_id is required")
+        return self
+
+
+class ReportStatusUpdateRequest(BaseModel):
+    status: Literal["reviewing", "resolved", "dismissed"]
+
+
+class CommunityModerationRequest(BaseModel):
+    moderation_status: Literal["approved", "rejected", "removed"]
+
+
+class LawyerVerificationUpdateRequest(BaseModel):
+    status: Literal["verified", "rejected"]
+    notes: str | None = Field(default=None, max_length=2000)
