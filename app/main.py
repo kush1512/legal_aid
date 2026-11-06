@@ -616,7 +616,7 @@ async def generate_document(payload: DocumentGenerateRequest,user: dict=Depends(
     case=None
     context=payload.facts or {}
     synthetic_demo=bool(payload.synthetic_demo)
-    sensitive=True
+    sensitive=not synthetic_demo
     if payload.case_id:
         case=await storage.get_case(user,str(payload.case_id))
         synthetic_demo=bool(case.get("synthetic_demo",False))
