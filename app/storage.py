@@ -17,7 +17,7 @@ class Storage:
         self._lock = threading.RLock()
         self._memory: dict[str, list[dict[str, Any]]] = {
             name: [] for name in (
-                "cases","case_messages","case_assessments","case_documents",
+                "cases","case_messages","case_facts","case_parties","case_timeline","case_assessments","case_documents",
                 "legal_documents","legal_chunks","legal_citations","generated_drafts",
                 "community_posts","lawyer_profiles"
             )
