@@ -69,3 +69,8 @@ A provision marked `historical` must be visibly labelled historical. It must not
 - National Cyber Crime Reporting Portal: [cybercrime.gov.in](https://cybercrime.gov.in/). The portal directs victims of online financial fraud to call 1930 and report through the portal.
 
 These details support urgent signposting only. They do not constitute case-specific advice or guarantee police/bank action.
+
+
+## Retrieval date semantics
+
+Legal search accepts an optional `as_of_date` (ISO date). When omitted, the API uses the current date. Retrieval filters on `effective_from` and `effective_to`; historical records must have a recorded end date and are only returned for an as-of date within their validity period. A document with missing effective dates may still be retrieved if verified, but the response must show the missing date metadata and uncertainty rather than imply current force.
