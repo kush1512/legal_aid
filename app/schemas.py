@@ -45,6 +45,7 @@ class CaseOut(BaseModel):
     jurisdiction: dict[str, Any]
     preferred_language: str
     sensitive: bool
+    synthetic_demo: bool = False
     created_at: datetime
     updated_at: datetime
     latest_message_at: datetime | None = None
