@@ -378,7 +378,10 @@ async def add_case_message(case_id: UUID,payload: MessageCreateRequest,user: dic
     prompt=(
         "You are the intake assistant for Legal Aid, an Indian legal information platform. "
         "Understand facts; do not provide a legal conclusion in this intake step. Never invent facts. "
-        "Mark user statements as user_provided, and label any inference explicitly. Ask only the most "
+        "Mark user statements as user_provided, and label any inference explicitly. For each extracted fact, "
+        "include an exact evidence_quote copied verbatim from a user-authored message; if you cannot quote "
+        "an exact span, set evidence_quote to null. The server independently validates the quote and ignores "
+        "the model source and verified labels. Ask only the most "
         "important missing questions. Detect imminent danger or urgent safety risk and flag it. "
         "Do not cite laws or sections unless separately verified by the legal knowledge base. "
         "If there is immediate physical danger, prioritize emergency safety guidance over legal analysis. "
@@ -537,6 +540,7 @@ async def generate_case_assessment(
             "section_label":row.get("section_label"),"heading":row.get("heading"),
             "source_url":row["source_url"],"verification_status":row["verification_status"],
             "effective_from":row.get("effective_from"),"effective_to":row.get("effective_to"),
+            "source_id":str(row["id"]),
             "exact_text":row["content"]
         } for row in retrieved
     ]
@@ -547,7 +551,9 @@ async def generate_case_assessment(
         "Only discuss legal provisions included in the VERIFIED SOURCE CONTEXT below. A retrieved match "
         "does not prove legal applicability; explain uncertainty and identify missing facts. If source context "
         "is empty, make no legal conclusion, list no law and say verified source material is unavailable. "
-        "Do not claim to be a lawyer or guarantee an outcome. Return the AssessmentContent JSON schema.\n"
+        "Do not claim to be a lawyer or guarantee an outcome. Return the AssessmentContent JSON schema. "
+        "The VERIFIED SOURCE CONTEXT entries have source_id values. Put only source_id values whose exact "
+        "provisions you actually rely on in used_source_ids. Do not create IDs or cite any other source.\n"
         "For immediate danger in India, identify official emergency number 112; for online financial fraud, identify 1930 and cybercrime.gov.in.\n"
         f"Category: {case['category']}\\nJurisdiction: {case.get('jurisdiction')}\\n"
         f"Conversation:\\n{conversation[-30000:]}\\n"
@@ -840,6 +846,7 @@ async def generate_document(payload: DocumentGenerateRequest,user: dict=Depends(
             "verification_status":item.get("verification_status"),
             "effective_from":item.get("effective_from"),
             "effective_to":item.get("effective_to"),
+            "source_id":str(item["id"]),
             "exact_text":item.get("content")
         }
         for item in verified_sources
@@ -852,7 +859,8 @@ async def generate_document(payload: DocumentGenerateRequest,user: dict=Depends(
         "the exact source details are present in that context. If no verified source is supplied, do not "
         "cite or imply a statutory basis; state that legal references require professional verification. "
         "Do not claim the draft has been filed, served, approved or legally reviewed. "
-        "Return title, content and placeholders as JSON.\n"
+        "Return title, content, placeholders and used_source_ids as JSON. The VERIFIED SOURCE CONTEXT entries "
+        "have source_id values; include only IDs of provisions actually cited in the draft. Never create IDs.\n"
         f"Document type: {payload.document_type}\nLanguage: {payload.language}\n"
         f"User instructions: {payload.instructions}\nFacts/context: {context}\n"
         f"VERIFIED SOURCE CONTEXT: {source_context}"
