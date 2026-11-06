@@ -13,13 +13,13 @@ from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.status import HTTP_201_CREATED
 
-from app.ai_models import CaseIntakeResult, DraftContent
+from app.ai_models import CaseIntakeResult, DraftContent, AssessmentContent
 from app.config import get_settings
 from app.embeddings import get_embedding_provider
 from app.legal_rag import hybrid_legal_search, verify_indexed_source, get_provision
 from app.llm import LLMOrchestrator, ProviderError
 from app.schemas import (
-    CaseCreateRequest, CaseCreateResponse, CaseListResponse, CaseOut, CaseStatus,
+    CaseCreateRequest, CaseCreateResponse, CaseListResponse, CaseOut, CaseStatus, AssessmentGenerateRequest,
     MessageCreateRequest, MessageCreateResponse, MessageOut,
     LegalSearchRequest, LegalSearchResponse, LegalSearchItem, CitationOut,
     DocumentGenerateRequest, DraftOut, CommunityPostCreateRequest, CommunityPostOut,
@@ -321,6 +321,141 @@ async def add_case_message(case_id: UUID,payload: MessageCreateRequest,user: dic
     return {"user_message":to_message_out(user_message),
             "assistant_message":to_message_out(assistant),"case_status":new_status,
             "follow_up_questions":followups,"extracted_facts":facts,"ai":ai}
+
+@app.post("/api/v1/cases/{case_id}/assessment",tags=["cases"])
+async def generate_case_assessment(
+    case_id: UUID,
+    payload: AssessmentGenerateRequest,
+    user: dict=Depends(get_current_user)
+):
+    case=await storage.get_case(user,str(case_id))
+    messages=await storage.list_messages(user,str(case_id))
+    conversation="\\n".join(f'{m["role"]}: {m["content"]}' for m in messages[-20:])
+    retrieval_query=(case["category"]+" "+str(case.get("jurisdiction"))+" "+
+                     " ".join(m["content"] for m in messages if m["role"]=="user"))[:6000]
+    retrieved=[]
+    try:
+        retrieved=await hybrid_legal_search(
+            retrieval_query,category=case["category"],
+            jurisdiction=(case.get("jurisdiction",{}).get("country","IN")+":"+
+                          case.get("jurisdiction",{}).get("state","")) if case.get("jurisdiction",{}).get("state")
+                         else case.get("jurisdiction",{}).get("country","IN"),
+            limit=8
+        )
+        retrieved=[row for row in retrieved if verify_indexed_source(row)]
+    except HTTPException as exc:
+        if exc.status_code!=503:
+            raise
+        logger.warning("assessment_knowledge_base_unavailable case_id=%s",str(case_id))
+    source_context=[
+        {
+            "source_id":row["id"],"act_name":row.get("act_name"),
+            "section_label":row.get("section_label"),"heading":row.get("heading"),
+            "source_url":row["source_url"],"verification_status":row["verification_status"],
+            "effective_from":row.get("effective_from"),"effective_to":row.get("effective_to"),
+            "exact_text":row["content"]
+        } for row in retrieved
+    ]
+    prompt=(
+        "You are preparing a preliminary legal information assessment for an Indian legal-aid intake. "
+        "Use only facts stated in the conversation. Separate established facts, assumptions and unknowns. "
+        "Do not invent parties, dates, events, evidence, statute names, section numbers or legal outcomes. "
+        "Only discuss legal provisions included in the VERIFIED SOURCE CONTEXT below. A retrieved match "
+        "does not prove legal applicability; explain uncertainty and identify missing facts. If source context "
+        "is empty, make no legal conclusion, list no law and say verified source material is unavailable. "
+        "Do not claim to be a lawyer or guarantee an outcome. Return the AssessmentContent JSON schema.\\n"
+        f"Category: {case['category']}\\nJurisdiction: {case.get('jurisdiction')}\\n"
+        f"Conversation:\\n{conversation[-30000:]}\\n"
+        f"VERIFIED SOURCE CONTEXT:\\n{source_context}"
+    )
+    try:
+        generation,generated=await llm.generate_structured_output(
+            prompt,AssessmentContent,sensitive=case.get("sensitive",True),
+            user_consent=payload.external_ai_consent,
+            model=settings.legal_explanation_model or None
+        )
+    except ProviderError as exc:
+        if "privacy policy" in str(exc).lower():
+            raise HTTPException(403,{"code":"PRIVACY_GATE_BLOCKED",
+                                     "message":"External AI assessment is blocked for this sensitive case.",
+                                     "details":[]}) from exc
+        raise HTTPException(502,{"code":"PROVIDER_UNAVAILABLE",
+                                 "message":"The assessment provider is temporarily unavailable.",
+                                 "details":[]}) from exc
+
+    fact_rows,_=await storage.list_owned("case_facts",user,100,0,case_id=str(case_id))
+    established=[
+        f'{fact["fact_key"]}: {fact["value"]}' for fact in fact_rows
+        if fact.get("source") in ("user_provided","document")
+    ]
+    inference_notes=[
+        f'{fact["fact_key"]}: {fact["value"]}' for fact in fact_rows
+        if fact.get("source")=="ai_inference"
+    ]
+    assessment_id=str(uuid.uuid4())
+    citation_items=[]
+    citation_rows=[]
+    for row in retrieved:
+        citation_id=str(uuid.uuid4())
+        exact_ref=", ".join(x for x in [
+            row.get("act_name"),row.get("section_label") or row.get("heading")
+        ] if x)
+        citation={
+            "id":citation_id,"legal_document_id":row["legal_document_id"],
+            "act_name":row.get("act_name") or "Unspecified Act",
+            "section_label":row.get("section_label"),"title":row.get("heading"),
+            "source_url":row["source_url"],"source_status":row["verification_status"],
+            "effective_from":row.get("effective_from"),"effective_to":row.get("effective_to"),
+            "excerpt":row["content"]
+        }
+        citation_items.append({
+            "citation":citation,
+            "explanation":"This provision was retrieved by semantic/keyword similarity. Retrieval does not establish applicability.",
+            "applicability":"uncertain"
+        })
+        citation_rows.append({
+            "id":citation_id,"case_id":str(case_id),"assessment_id":assessment_id,
+            "user_id":user["id"],"legal_document_id":row["legal_document_id"],
+            "legal_chunk_id":row["id"],"exact_reference":exact_ref or "Unspecified provision",
+            "cited_excerpt":row["content"],"applicability":"uncertain",
+            "verification_status":row["verification_status"]
+        })
+    has_sources=bool(citation_items)
+    assessment_payload={
+        "summary":generated.summary,
+        "parties":generated.parties,
+        "timeline":generated.timeline,
+        "evidence":generated.evidence,
+        "established_facts":established,
+        "assumptions":generated.assumptions+inference_notes,
+        "unknowns":generated.unknowns,
+        "legal_position":generated.legal_position if has_sources else
+            "No legal conclusion is made because no verified matching legal provisions were available. Obtain current source material and qualified professional review.",
+        "potentially_relevant_laws":citation_items,
+        "options":generated.options if has_sources else [],
+        "follow_up_questions":generated.follow_up_questions,
+        "overall_uncertainty":generated.overall_uncertainty if has_sources else "high",
+        "confidence":min(generated.confidence,0.5) if has_sources else 0.0,
+        "escalation_required":generated.escalation_required,
+        "escalation_reason":generated.escalation_reason,
+        "disclaimer":"AI-generated preliminary information, not legal advice or representation. All drafts and legal interpretations require review by a qualified professional."
+    }
+    row=await storage.insert("case_assessments",user,{
+        "id":assessment_id,"case_id":str(case_id),"user_id":user["id"],
+        "summary":assessment_payload["summary"],"assessment":assessment_payload,
+        "model_provider":generation.provider,"model_name":generation.model,
+        "model_version":generation.version,"is_mock":generation.is_mock,
+        "retrieved_source_ids":[item["id"] for item in retrieved]
+    })
+    for citation_row in citation_rows:
+        await storage.insert("legal_citations",user,citation_row)
+    await storage.update_case_status(user,str(case_id),"analysed")
+    return {"assessment":{
+        "id":row["id"],"case_id":row["case_id"],"generated_at":row["created_at"],
+        **assessment_payload,
+        "model":{"provider":generation.provider,"name":generation.model,
+                 "version":generation.version,"is_mock":generation.is_mock}
+    }}
 
 @app.get("/api/v1/cases/{case_id}/assessment",tags=["cases"])
 async def get_assessment(case_id: UUID,user: dict=Depends(get_current_user)):
