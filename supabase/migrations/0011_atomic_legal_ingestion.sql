@@ -5,17 +5,24 @@ create unique index if not exists legal_documents_source_checksum_uidx
 
 create or replace function public.ingest_legal_document(p_document jsonb, p_chunks jsonb)
 returns table (legal_document_id uuid, inserted boolean)
-language plpgsql security definer set search_path = public, extensions
+language plpgsql security definer set search_path = pg_catalog, public, extensions
 as $$
 declare
   v_document_id uuid;
   v_chunk jsonb;
 begin
-  if jsonb_typeof(p_document) <> 'object' then
+  if p_document is null or jsonb_typeof(p_document) is distinct from 'object' then
     raise exception 'p_document must be a JSON object';
   end if;
-  if jsonb_typeof(p_chunks) <> 'array' or jsonb_array_length(p_chunks) = 0 then
+  if p_chunks is null or jsonb_typeof(p_chunks) is distinct from 'array' then
+    raise exception 'p_chunks must be a JSON array';
+  end if;
+  if jsonb_array_length(p_chunks) = 0 then
     raise exception 'p_chunks must be a non-empty JSON array';
+  end if;
+  if nullif(p_document->>'source_url', '') is null
+     or nullif(p_document->>'content_sha256', '') is null then
+    raise exception 'source_url and content_sha256 are required';
   end if;
   if coalesce(p_document->>'verification_status', 'unverified') <> 'unverified'
      or p_document->>'verified_at' is not null
@@ -56,6 +63,10 @@ begin
 
   for v_chunk in select value from jsonb_array_elements(p_chunks)
   loop
+    if jsonb_typeof(v_chunk) is distinct from 'object'
+       or nullif(v_chunk->>'content', '') is null then
+      raise exception 'Every chunk must be an object with non-empty content';
+    end if;
     insert into public.legal_chunks (
       legal_document_id, act_name, chapter_label, section_label,
       subsection_label, paragraph_label, heading, content, embedding,
