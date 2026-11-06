@@ -31,6 +31,7 @@ from app.storage import Storage, utcnow
 from app.speech import GroqWhisperProvider
 
 settings = get_settings()
+INDIA_TZ = timezone(timedelta(hours=5, minutes=30))
 logging.basicConfig(level=settings.log_level.upper(), format="%(asctime)s %(levelname)s %(name)s %(message)s")
 logger = logging.getLogger("legal_aid.api")
 storage = Storage(settings)
@@ -482,7 +483,7 @@ async def generate_case_assessment(
                           case.get("jurisdiction",{}).get("state","")) if case.get("jurisdiction",{}).get("state")
                          else case.get("jurisdiction",{}).get("country","IN"),
             limit=8,
-            as_of_date=datetime.now(timezone.utc).date()
+            as_of_date=datetime.now(INDIA_TZ).date()
         )
         retrieved=[row for row in retrieved if verify_indexed_source(row)]
     except HTTPException as exc:
@@ -687,7 +688,7 @@ async def legal_search(payload: LegalSearchRequest,user: dict=Depends(get_curren
         payload.query,category=payload.category.value if payload.category else None,
         jurisdiction=(payload.jurisdiction.country + ":" + payload.jurisdiction.state) if payload.jurisdiction.state else payload.jurisdiction.country,
         limit=payload.limit,
-        as_of_date=payload.as_of_date or datetime.now(timezone.utc).date()
+        as_of_date=payload.as_of_date or datetime.now(INDIA_TZ).date()
     )
     verified=[r for r in results if verify_indexed_source(r)]
     max_score=max((r["score"] for r in verified),default=1)
@@ -735,28 +736,67 @@ async def generate_document(payload: DocumentGenerateRequest,user: dict=Depends(
     context=payload.facts or {}
     synthetic_demo=bool(payload.synthetic_demo)
     sensitive=not synthetic_demo
+    verified_sources=[]
     if payload.case_id:
         case=await storage.get_case(user,str(payload.case_id))
         synthetic_demo=bool(case.get("synthetic_demo",False))
         sensitive=bool(case.get("sensitive",True))
         messages=await storage.list_messages(user,str(payload.case_id))
+        user_text=" ".join(m["content"] for m in messages if m["role"]=="user")
         context={
-            "category":case["category"],"jurisdiction":case.get("jurisdiction"),
+            "category":case["category"],
+            "jurisdiction":case.get("jurisdiction"),
             "conversation":[{"role":m["role"],"content":m["content"]} for m in messages[-20:]]
         }
+        try:
+            verified_sources=await hybrid_legal_search(
+                user_text,
+                category=case["category"],
+                jurisdiction=(
+                    case.get("jurisdiction",{}).get("country","IN")+":"+
+                    case.get("jurisdiction",{}).get("state","")
+                ) if case.get("jurisdiction",{}).get("state")
+                   else case.get("jurisdiction",{}).get("country","IN"),
+                limit=8,
+                as_of_date=datetime.now(INDIA_TZ).date()
+            )
+            verified_sources=[item for item in verified_sources if verify_indexed_source(item)]
+        except HTTPException as exc:
+            if exc.status_code != 503:
+                raise
+            logger.warning("draft_knowledge_base_unavailable case_id=%s",str(payload.case_id))
+
     external_demo_allowed=can_use_external_synthetic_ai(user,synthetic_demo,payload.external_ai_consent)
     if settings.llm_provider!="mock" and not external_demo_allowed:
         raise HTTPException(403,{"code":"PRIVACY_GATE_BLOCKED",
                                  "message":"External drafting is disabled for real cases. Use the mock provider or an approved synthetic demo account.",
                                  "details":[]})
+
+    source_context=[
+        {
+            "act_name":item.get("act_name"),
+            "section_label":item.get("section_label"),
+            "heading":item.get("heading"),
+            "source_url":item.get("source_url"),
+            "verification_status":item.get("verification_status"),
+            "effective_from":item.get("effective_from"),
+            "effective_to":item.get("effective_to"),
+            "exact_text":item.get("content")
+        }
+        for item in verified_sources
+    ]
     prompt=(
         "Prepare a preliminary Indian legal document draft. Do not invent facts, dates, names, "
         "addresses, case numbers, statutory sections or procedural history. Use explicit [PLACEHOLDER] "
-        "fields for missing information. Cite no law unless supplied as a verified source (none supplied "
-        "in this request). Do not claim it has been filed, served, approved or legally reviewed. "
+        "fields for missing information. Use only legal provisions in the VERIFIED SOURCE CONTEXT. "
+        "Never create a new Act name, section number, URL or legal citation. Cite a provision only when "
+        "the exact source details are present in that context. If no verified source is supplied, do not "
+        "cite or imply a statutory basis; state that legal references require professional verification. "
+        "Do not claim the draft has been filed, served, approved or legally reviewed. "
         "Return title, content and placeholders as JSON.\n"
         f"Document type: {payload.document_type}\nLanguage: {payload.language}\n"
-        f"User instructions: {payload.instructions}\nFacts/context: {context}"
+        f"User instructions: {payload.instructions}\nFacts/context: {context}\n"
+        f"VERIFIED SOURCE CONTEXT: {source_context}"
     )
     try:
         generation,draft=await llm.generate_structured_output(
@@ -765,18 +805,75 @@ async def generate_document(payload: DocumentGenerateRequest,user: dict=Depends(
             model=settings.document_draft_model or None
         )
     except ProviderError as exc:
+        if "synthetic demonstration" in str(exc).lower() or "privacy policy" in str(exc).lower():
+            raise HTTPException(403,{"code":"PRIVACY_GATE_BLOCKED",
+                                     "message":"External drafting is disabled for this input.",
+                                     "details":[]}) from exc
         raise HTTPException(502,{"code":"PROVIDER_UNAVAILABLE",
                                  "message":"The drafting provider is unavailable.","details":[]}) from exc
+
+    draft_id=str(uuid.uuid4())
+    citation_items=[]
+    citation_ids=[]
+    citation_rows=[]
+    for item in verified_sources:
+        citation_id=str(uuid.uuid4())
+        citation_ids.append(citation_id)
+        citation={
+            "id":citation_id,
+            "legal_document_id":item["legal_document_id"],
+            "act_name":item.get("act_name") or "Unspecified Act",
+            "section_label":item.get("section_label"),
+            "title":item.get("heading"),
+            "source_url":item["source_url"],
+            "source_status":item["verification_status"],
+            "effective_from":item.get("effective_from"),
+            "effective_to":item.get("effective_to"),
+            "excerpt":item["content"]
+        }
+        citation_items.append(citation)
+        citation_rows.append({
+            "id":citation_id,
+            "case_id":str(payload.case_id) if payload.case_id else None,
+            "assessment_id":None,
+            "user_id":user["id"],
+            "legal_document_id":item["legal_document_id"],
+            "legal_chunk_id":item["id"],
+            "exact_reference":", ".join(x for x in [
+                item.get("act_name"),item.get("section_label") or item.get("heading")
+            ] if x) or "Unspecified provision",
+            "cited_excerpt":item["content"],
+            "applicability":"uncertain",
+            "verification_status":item["verification_status"]
+        })
+
     row=await storage.insert("generated_drafts",user,{
-        "case_id":str(payload.case_id) if payload.case_id else None,"user_id":user["id"],
-        "document_type":payload.document_type,"title":draft.title,"content":draft.content,
-        "placeholders":draft.placeholders,"citation_ids":[],"review_required":True,
-        "model_provider":generation.provider,"model_name":generation.model,"is_mock":generation.is_mock
+        "id":draft_id,
+        "case_id":str(payload.case_id) if payload.case_id else None,
+        "user_id":user["id"],
+        "document_type":payload.document_type,
+        "title":draft.title,
+        "content":draft.content,
+        "placeholders":draft.placeholders,
+        "citation_ids":citation_ids,
+        "review_required":True,
+        "model_provider":generation.provider,
+        "model_name":generation.model,
+        "is_mock":generation.is_mock
     })
+    for citation_row in citation_rows:
+        await storage.insert("legal_citations",user,citation_row)
+
     return {"draft":{
-        "id":row["id"],"case_id":row["case_id"],"document_type":row["document_type"],
-        "title":row["title"],"content":row["content"],"placeholders":row["placeholders"],
-        "citations":[],"review_required":True,"created_at":row["created_at"],
+        "id":row["id"],
+        "case_id":row["case_id"],
+        "document_type":row["document_type"],
+        "title":row["title"],
+        "content":row["content"],
+        "placeholders":row["placeholders"],
+        "citations":citation_items,
+        "review_required":True,
+        "created_at":row["created_at"],
         "model":{"provider":generation.provider,"name":generation.model,"is_mock":generation.is_mock}
     }}
 
