@@ -10,6 +10,7 @@ import hashlib
 import json
 import math
 import re
+from pathlib import Path
 from urllib.parse import urljoin, urlparse
 
 import httpx
@@ -21,6 +22,8 @@ from app.config import get_settings
 from app.embeddings import get_embedding_provider
 
 MAX_SOURCE_BYTES = 50 * 1024 * 1024
+REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+DATABASE_DIR = REPOSITORY_ROOT / "database"
 MAX_CHARS_PER_CHUNK = 6500
 MAX_REDIRECTS = 5
 OFFICIAL_SUFFIXES = (".gov.in", ".nic.in", ".gov", ".sci.gov.in", ".ecourts.gov.in")
@@ -205,6 +208,47 @@ def structure_chunks(text: str) -> list[dict]:
     return chunks
 
 
+def read_local_source(relative_path: str) -> tuple[bytes, str, str]:
+    """Read a PDF/HTML file only from the repository's database/ directory.
+
+    Local files still require an official HTTPS source URL for provenance; the
+    URL is validated but not fetched.
+    """
+    candidate = (REPOSITORY_ROOT / relative_path).resolve()
+    database_root = DATABASE_DIR.resolve()
+    try:
+        candidate.relative_to(database_root)
+    except ValueError as exc:
+        raise ValueError("Local source files must be stored inside database/") from exc
+
+    if not candidate.is_file():
+        raise FileNotFoundError(f"Local source file does not exist: {relative_path}")
+    suffix = candidate.suffix.lower()
+    mime_by_suffix = {
+        ".pdf": "application/pdf",
+        ".html": "text/html",
+        ".htm": "text/html",
+    }
+    if suffix not in mime_by_suffix:
+        raise ValueError("Local source must be a .pdf, .html or .htm file")
+
+    size = candidate.stat().st_size
+    if size <= 0:
+        raise ValueError("Local source file is empty")
+    if size > MAX_SOURCE_BYTES:
+        raise ValueError("Source exceeds 50 MB ingestion limit")
+
+    return candidate.read_bytes(), mime_by_suffix[suffix], candidate.as_posix()
+
+
+def load_local_source(args) -> tuple[bytes, str, str]:
+    if not args.source_url or not is_official_https_url(args.source_url):
+        raise ValueError(
+            "Local ingestion requires --source-url with an allowed official HTTPS URL"
+        )
+    return (*read_local_source(args.file), args.source_url)
+
+
 async def download(url: str) -> tuple[bytes, str, str]:
     """Download with per-hop allowlist checks and a streaming size limit."""
     current_url = url
@@ -277,7 +321,10 @@ def build_document(args, source_url: str, checksum: str) -> dict:
 
 
 async def ingest(args):
-    raw, mime, source_url = await download(args.url)
+    if args.file:
+        raw, mime, _local_path, source_url = load_local_source(args)
+    else:
+        raw, mime, source_url = await download(args.url)
     extracted_text = extract_source(raw, mime, source_url)
     if len(extracted_text) < 100:
         raise ValueError(
@@ -411,7 +458,17 @@ async def ingest(args):
 
 def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--url", required=True)
+    source_group = parser.add_mutually_exclusive_group(required=True)
+    source_group.add_argument("--url", help="Official HTTPS PDF/HTML URL to download.")
+    source_group.add_argument(
+        "--file",
+        help="Local PDF/HTML path inside database/; requires --source-url for provenance.",
+    )
+    parser.add_argument(
+        "--source-url",
+        default=None,
+        help="Canonical official HTTPS source URL for a local file (not downloaded).",
+    )
     parser.add_argument("--title", required=True)
     parser.add_argument("--source-name", required=True)
     parser.add_argument(
