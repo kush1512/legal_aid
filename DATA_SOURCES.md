@@ -29,6 +29,8 @@ Check that a particular document is actually published by the official instituti
 8. Re-run retrieval and citation-accuracy tests after every update.
 
 ## Ingestion CLI
+
+### Remote official URL
 Validate a source without embeddings or database writes:
 
 ```bash
@@ -43,6 +45,25 @@ python -m scripts.ingest_legal \
   --effective-from YYYY-MM-DD \
   --dry-run
 ```
+
+### Local official PDF/HTML
+
+For an official source that cannot be downloaded reliably by the ingestion server, place the manually downloaded file under `database/` (the directory is tracked through `database/README.md`). Do not commit the PDF itself.
+
+Example:
+```powershell
+python -m scripts.ingest_legal `
+  --file "database/land_acquisition_2013.pdf" `
+  --source-url "https://official-government-domain.gov.in/path/to/land_acquisition_2013.pdf" `
+  --title "Exact displayed title" `
+  --source-name "Issuing authority" `
+  --document-type act `
+  --act-name "Exact Act name" `
+  --jurisdiction IN `
+  --dry-run
+```
+
+Local-file mode accepts only paths resolving inside the repository's `database/` directory, supports PDF/HTML/HTM up to 50 MB, and requires `--source-url` to preserve the canonical official HTTPS provenance. The URL is allowlist-validated but not downloaded. File signature/format, extracted text and chunk structure are validated exactly as in remote mode. New records remain unverified.
 
 After inspecting the dry-run output, remove `--dry-run` to ingest. The command needs `SUPABASE_URL`, backend-only `SUPABASE_SERVICE_ROLE_KEY`, and the local embedding model for a real ingestion. Dry-run downloads, validates, extracts and chunks but does not require Supabase or load the embedding model.
 
