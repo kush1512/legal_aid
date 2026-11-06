@@ -3,12 +3,14 @@ def test_case_intake_and_assessment_flow(client,auth_headers):
         "category":"property_real_estate",
         "description":"A synthetic demo seller accepted payment but has not delivered possession.",
         "jurisdiction":{"country":"IN","state":"Assam"},
-        "preferred_language":"en"
+        "preferred_language":"en",
+        "sensitive":false
     })
     assert created.status_code==201,created.text
     case=created.json()["case"]
     case_id=case["id"]
     assert case["sensitive"] is True
+    assert case["synthetic_demo"] is False
 
     message=client.post(f"/api/v1/cases/{case_id}/messages",headers=auth_headers,json={
         "content":"This is synthetic test information. What details should I collect?"
@@ -44,3 +46,12 @@ def test_invalid_category_is_rejected(client,auth_headers):
     })
     assert response.status_code==422
     assert response.json()["error"]["code"]=="VALIDATION_ERROR"
+
+def test_client_cannot_create_synthetic_case_without_server_allowlist(client,auth_headers):
+    response=client.post("/api/v1/cases",headers=auth_headers,json={
+        "category":"property_real_estate",
+        "description":"Synthetic-only test case.",
+        "synthetic_demo":True
+    })
+    assert response.status_code==403
+    assert response.json()["error"]["code"]=="FORBIDDEN"
