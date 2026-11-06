@@ -205,7 +205,8 @@ class Storage:
                     return row
             return await self._run(op)
         def op():
-            res=self._client(user["token"]).table("cases").update({"status":status}).eq("id",case_id).eq("user_id",user["id"]).execute()
+            # This method is called only after an owner-scoped case read in the API layer.
+            res=self._service_client().table("cases").update({"status":status}).eq("id",case_id).eq("user_id",user["id"]).execute()
             return res.data[0] if res.data else None
         return await self._run(op)
 
