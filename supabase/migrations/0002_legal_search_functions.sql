@@ -19,7 +19,7 @@ as $$
   from public.legal_chunks c
   join public.legal_documents d on d.id=c.legal_document_id
   where c.embedding is not null
-    and d.jurisdiction=filter_jurisdiction
+    and d.jurisdiction in ('IN',filter_jurisdiction)
     and d.verification_status in ('verified','historical')
     and (filter_category is null or d.category::text=filter_category)
   order by c.embedding <=> query_embedding
@@ -46,7 +46,7 @@ as $$
   from public.legal_chunks c
   join public.legal_documents d on d.id=c.legal_document_id
   where c.keyword_text @@ websearch_to_tsquery('simple', search_text)
-    and d.jurisdiction=filter_jurisdiction
+    and d.jurisdiction in ('IN',filter_jurisdiction)
     and d.verification_status in ('verified','historical')
     and (filter_category is null or d.category::text=filter_category)
   order by ts_rank_cd(c.keyword_text, websearch_to_tsquery('simple', search_text)) desc
