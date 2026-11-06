@@ -17,3 +17,4 @@ tenacity>=9,<10
 orjson>=3.10
 pytest>=8,<9
 pytest-asyncio>=0.24,<2
+beautifulsoup4>=4.12,<5
