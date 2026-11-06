@@ -2,7 +2,8 @@
 -- Apply this file in Supabase SQL Editor or as a migration.
 -- The backend must use verified Supabase JWT identity; never trust client user_id.
 create extension if not exists pgcrypto;
-create extension if not exists vector;
+create schema if not exists extensions;
+create extension if not exists vector with schema extensions;
 create extension if not exists pg_trgm;
 
 create type public.case_category as enum ('property_real_estate','marriage_family','digital_fraud_cybercrime','personal_safety_privacy');
@@ -108,7 +109,7 @@ create table public.legal_chunks (
  paragraph_label text, heading text, content text not null,
  keyword_text tsvector generated always as
   (to_tsvector('simple',coalesce(heading,'') || ' ' || coalesce(content,''))) stored,
- embedding vector(384), ordinal integer not null default 0,
+ embedding extensions.vector(384), ordinal integer not null default 0,
  language text not null default 'en', created_at timestamptz not null default now()
 );
 create index legal_chunks_document_idx on public.legal_chunks(legal_document_id,ordinal);
