@@ -30,7 +30,7 @@ The default configuration deliberately selects `LLM_PROVIDER=mock`, `MOCK_STORAG
 3. Add the URL to `SUPABASE_URL` and the publishable/anon key to `SUPABASE_ANON_KEY`.
 4. Keep the service-role/secret key in backend-only `SUPABASE_SERVICE_ROLE_KEY`. Never prefix it with `NEXT_PUBLIC_` or put it in frontend variables.
 5. In the SQL Editor, apply all migrations from `supabase/migrations/` in ascending order (0001 through 0007). Migration 0006 makes case classification and AI-generated records server-owned; migration 0007 creates the sanitized community feed with real engagement counts. The backend service-role key is required for server-owned writes.
-6. Confirm the `case-files` Storage bucket exists and is private.
+6. Confirm the `case-files` Storage bucket exists and is private. The backend validates case ownership and object-path prefix before using its service-role key for upload or signed URL creation; browser clients must not write directly to this bucket.
 7. In **Authentication → Providers**, enable the sign-in methods the frontend uses. Configure the project's allowed redirect URLs for the frontend domains.
 8. Set `MOCK_STORAGE=false` and `DEV_AUTH_BYPASS=false`.
 
