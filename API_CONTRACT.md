@@ -77,6 +77,7 @@ interface Case {
   };
   preferred_language: string;
   sensitive: boolean;
+  synthetic_demo: boolean;
   created_at: string;
   updated_at: string;
   latest_message_at?: string | null;
@@ -106,8 +107,21 @@ interface ExtractedFact {
   key: string;
   value: unknown;
   source: "user_provided" | "document" | "ai_inference";
+  evidence_quote?: string | null;
   confidence?: number | null;
   verified: boolean;
+}
+```
+
+### CommunityComment
+```ts
+interface CommunityComment {
+  id: string;
+  post_id: string;
+  content: string;
+  display_name: string;
+  created_at: string;
+  moderation_status: "pending" | "approved" | "rejected" | "removed";
 }
 ```
 
@@ -152,6 +166,13 @@ interface CaseAssessment {
   confidence: number;
   escalation_required: boolean;
   escalation_reason?: string | null;
+  escalation_details?: {
+    required: boolean;
+    priority: "urgent" | "time_sensitive";
+    instructions: string[];
+    contacts: Array<{name: string; number: string; url: string}>;
+    source_note: string;
+  } | null;
   disclaimer: string;
   model: {provider: string; name: string; version?: string; is_mock: boolean};
 }
