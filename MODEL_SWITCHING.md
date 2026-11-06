@@ -27,7 +27,9 @@ Only Gemini/Groq are intended as the first free-first external options. OpenAI a
 - `LLM_MAX_OUTPUT_TOKENS`: hard output token cap.
 - `LLM_MAX_RETRIES`: bounded retries for transient errors.
 - `LLM_FALLBACK_ENABLED`: enable/disable fallback.
-- `ALLOW_EXTERNAL_LLM_FOR_SENSITIVE`: server-side opt-in; default false.
+- `ALLOW_EXTERNAL_LLM_FOR_SYNTHETIC`: server-side opt-in; default false.
+- `SYNTHETIC_DEMO_USER_IDS`: comma-separated UUID allowlist of dedicated test accounts.
+- `ALLOW_EXTERNAL_LLM_FOR_SENSITIVE`: separate stricter opt-in; default false. Real cases remain blocked by default.
 
 The configured model string is passed directly to the provider SDK. Do not assume that a model identifier or its JSON-mode support remains available indefinitely. Check the provider's currently supported model catalogue and test a structured response before switching.
 
@@ -45,7 +47,7 @@ The configured model string is passed directly to the provider SDK. Do not assum
 
 Fallback only occurs for timeout, rate-limit and transient upstream errors (408/409/429/5xx/connection timeout). Invalid credentials, unsupported models, schema-validation errors and privacy-gate denials are not eligible.
 
-Fallback re-runs the privacy gate for the destination provider. Sensitive data is not silently routed to another service. A fallback model may have different safety, retention, region and training terms; review them independently.
+Fallback re-runs the privacy gate for the destination provider. External providers are disabled unless the caller is an allowlisted synthetic-demo account and the request explicitly marks synthetic input and consents. Sensitive data is not silently routed to another service. A fallback model may have different safety, retention, region and training terms; review them independently.
 
 ## Structured output
 
