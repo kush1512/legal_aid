@@ -76,6 +76,13 @@ def test_comments_are_moderated_and_votes_are_upserted(client,auth_headers,monke
     assert post.status_code==201,post.text
     post_id=post.json()["post"]["id"]
 
+    # The parent post must be approved before users can comment on it.
+    approved_post=client.patch(
+        f"/api/v1/admin/community/posts/{post_id}/moderation",
+        headers=auth_headers,json={"moderation_status":"approved"}
+    )
+    assert approved_post.status_code==200,approved_post.text
+
     pending_comment=client.post(
         f"/api/v1/community/posts/{post_id}/comments",
         headers=auth_headers,json={"content":"A synthetic comment for moderation."}
@@ -86,12 +93,6 @@ def test_comments_are_moderated_and_votes_are_upserted(client,auth_headers,monke
     hidden=client.get(f"/api/v1/community/posts/{post_id}/comments",headers=auth_headers)
     assert hidden.status_code==200
     assert hidden.json()["page"]["total"]==0
-
-    approved_post=client.patch(
-        f"/api/v1/admin/community/posts/{post_id}/moderation",
-        headers=auth_headers,json={"moderation_status":"approved"}
-    )
-    assert approved_post.status_code==200,approved_post.text
     approved_comment=client.patch(
         f"/api/v1/admin/community/comments/{comment_id}/moderation",
         headers=auth_headers,json={"moderation_status":"approved"}
