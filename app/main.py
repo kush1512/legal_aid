@@ -1,4 +1,5 @@
 import logging
+import re
 import time
 import uuid
 from collections import defaultdict, deque
@@ -145,6 +146,75 @@ def can_use_external_synthetic_ai(user: dict, synthetic_demo: bool, consent: boo
         and settings.allow_external_llm_for_synthetic
         and is_allowlisted_synthetic_user(user)
     )
+
+def official_escalation_for_case(category: str, text: str) -> dict[str, Any] | None:
+    """Deterministic escalation guidance for known urgent India-specific situations."""
+    normalized = " ".join(text.casefold().split())
+    contacts: list[dict[str, str]] = []
+    instructions: list[str] = []
+
+    immediate_safety_patterns = (
+        r"threaten(?:ed|ing)? to kill",
+        r"kill me",
+        r"(?:attacking|attacked|assaulting|assaulted) me",
+        r"trying to hurt me",
+        r"life.{0,20}in danger",
+        r"unsafe right now",
+        r"following me right now",
+        r"locked me inside",
+        r"trapped inside",
+        r"(?:kidnap|abduct)(?:ped|ing)?",
+        r"cannot escape",
+        r"holding (?:a )?(?:knife|gun|weapon)",
+    )
+    immediate_safety = any(re.search(pattern, normalized) for pattern in immediate_safety_patterns)
+
+    financial_fraud_terms = (
+        "upi", "bank transfer", "money debited", "money transferred",
+        "online payment", "card transaction", "wallet transfer", "unauthorised transaction",
+        "unauthorized transaction",
+    )
+    fraud_terms = ("fraud", "scam", "cheated", "deceived", "unauthorised", "unauthorized")
+    financial_cyber_fraud = (
+        category == "digital_fraud_cybercrime"
+        and any(term in normalized for term in financial_fraud_terms)
+        and any(term in normalized for term in fraud_terms)
+    )
+
+    if immediate_safety:
+        contacts.append({
+            "name": "India Emergency Response Support System",
+            "number": "112",
+            "url": "https://112.gov.in/",
+        })
+        instructions.append(
+            "Immediate safety risk detected. Move to a safer place if possible, avoid confronting the person, "
+            "and call 112 for emergency police, fire or medical assistance. Use the 112 India app or SOS facility "
+            "if calling is not safe."
+        )
+
+    if financial_cyber_fraud:
+        contacts.append({
+            "name": "National Cyber Crime financial-fraud helpline",
+            "number": "1930",
+            "url": "https://cybercrime.gov.in/",
+        })
+        instructions.append(
+            "For a suspected online financial fraud, report it promptly by calling 1930 and submit the complaint "
+            "through the National Cyber Crime Reporting Portal at cybercrime.gov.in. Contact your bank/payment "
+            "provider immediately to request protective action."
+        )
+
+    if not contacts:
+        return None
+    return {
+        "required": True,
+        "priority": "urgent" if immediate_safety else "time_sensitive",
+        "instructions": instructions,
+        "contacts": contacts,
+        "source_note": "Official government escalation channels; this is not a substitute for emergency services.",
+    }
+
 
 def to_message_out(row: dict) -> dict:
     return {
