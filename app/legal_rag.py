@@ -1,7 +1,8 @@
-from datetime import date
 import hashlib
+import logging
 import threading
 import time
+from datetime import date
 from typing import Any
 
 from fastapi import HTTPException
@@ -11,7 +12,7 @@ from starlette.concurrency import run_in_threadpool
 from app.config import get_settings
 from app.embeddings import get_embedding_provider
 
-
+logger = logging.getLogger("legal_aid.rag")
 _cache: dict[str, tuple[float, list[dict[str, Any]]]] = {}
 _cache_lock = threading.Lock()
 
@@ -31,10 +32,11 @@ async def hybrid_legal_search(
     limit: int,
     as_of_date: date | None = None,
 ) -> list[dict[str, Any]]:
-    """Hybrid semantic/keyword retrieval scoped to a legal validity date."""
+    """Hybrid retrieval; falls back to indexed PostgreSQL keyword search if local embeddings are unavailable."""
     settings = get_settings()
     if not (settings.supabase_url and settings.supabase_service_role_key):
         raise HTTPException(503, "Legal knowledge base is not configured")
+
     effective_date = as_of_date or date.today()
     cache_key = hashlib.sha256(
         f"{query.strip().casefold()}|{category or ''}|{jurisdiction}|{limit}|{effective_date.isoformat()}".encode("utf-8")
@@ -47,15 +49,22 @@ async def hybrid_legal_search(
         if cached:
             _cache.pop(cache_key, None)
 
-    embedder = get_embedding_provider()
-    query_vector = await embedder.embed_query(query)
-    params = {
-        "query_embedding": query_vector,
-        "match_count": limit,
-        "filter_category": category,
-        "filter_jurisdiction": jurisdiction,
-        "as_of_date": effective_date.isoformat(),
-    }
+    semantic_params = None
+    try:
+        embedder = get_embedding_provider()
+        query_vector = await embedder.embed_query(query)
+        semantic_params = {
+            "query_embedding": query_vector,
+            "match_count": limit,
+            "filter_category": category,
+            "filter_jurisdiction": jurisdiction,
+            "as_of_date": effective_date.isoformat(),
+        }
+    except Exception as exc:
+        # Keep free Render instances usable without loading PyTorch/model weights.
+        # The API will still return exact indexed excerpts from Postgres full-text search.
+        logger.warning("semantic_retrieval_unavailable error_type=%s", type(exc).__name__)
+
     keyword_params = {
         "search_text": query,
         "match_count": limit,
@@ -66,13 +75,24 @@ async def hybrid_legal_search(
 
     def retrieve():
         client = _kb_client()
-        semantic = client.rpc("match_legal_chunks", params).execute().data or []
-        keyword = client.rpc("search_legal_keyword", keyword_params).execute().data or []
+        semantic: list[dict[str, Any]] = []
+        keyword: list[dict[str, Any]] = []
+        if semantic_params is not None:
+            try:
+                semantic = client.rpc("match_legal_chunks", semantic_params).execute().data or []
+            except Exception as exc:
+                logger.warning("semantic_rpc_unavailable error_type=%s", type(exc).__name__)
+        try:
+            keyword = client.rpc("search_legal_keyword", keyword_params).execute().data or []
+        except Exception as exc:
+            logger.warning("keyword_rpc_unavailable error_type=%s", type(exc).__name__)
+            if not semantic:
+                raise HTTPException(503, "Legal retrieval services are unavailable") from exc
         return semantic, keyword
 
     semantic, keyword = await run_in_threadpool(retrieve)
 
-    # Reciprocal-rank fusion combines the independent semantic and keyword rankings.
+    # Reciprocal-rank fusion avoids mixing incomparable cosine and ts_rank scales.
     fused: dict[str, dict[str, Any]] = {}
     for source, weight, method in (
         (semantic, 0.65, "semantic"),
@@ -98,7 +118,7 @@ async def hybrid_legal_search(
 
 
 def verify_indexed_source(row: dict[str, Any]) -> bool:
-    # Status and source metadata come from the reviewed ingestion record, never the model.
+    # Status and source metadata come from reviewed ingestion records, never from model output.
     return (
         row.get("verification_status") in ("verified", "historical")
         and isinstance(row.get("source_url"), str)
