@@ -84,3 +84,18 @@ These details support urgent signposting only. They do not constitute case-speci
 
 ## Retrieval date semantics
 Legal search accepts an optional `as_of_date` (ISO date). When omitted, the API uses the current date. Retrieval filters on `effective_from` and `effective_to`; historical records must have a recorded end date and are only returned for an as-of date within their validity period. A document with missing effective dates may still be retrieved if verified, but the response must show missing date metadata and uncertainty rather than imply current force.
+
+
+## Administrator source-review API
+
+The human review workflow is exposed through administrator-only backend endpoints:
+
+- `GET /api/v1/admin/legal-documents` — list unreviewed documents (paginated).
+- `GET /api/v1/admin/legal-documents/{document_id}` — inspect document metadata, extracted chunks and review history.
+- `POST /api/v1/admin/legal-documents/{document_id}/review` — record a review decision.
+
+The review request accepts `decision` (`verified`, `historical` or `rejected`), a rationale of at least 20 characters, and a checklist containing: `official_source_confirmed`, `document_identity_confirmed`, `content_integrity_confirmed`, `jurisdiction_confirmed`, `effective_dates_reviewed`, `amendments_reviewed` and `legal_applicability_reviewed`. All seven checks must be true for an approval or historical classification. Historical records must have an `effective_to` date. Rejected records remain unverified and are excluded from the pending queue and public legal retrieval.
+
+Set `ADMIN_USER_IDS` to a comma-separated list of actual administrator Supabase Auth user UUIDs. For local development only, `DEV_AUTH_BYPASS=true` can be used with a UUID also present in `ADMIN_USER_IDS`; never enable the development bypass in production. Keep the Supabase secret/service-role key backend-only.
+
+The review function updates the document status and appends an audit event transactionally. Do not approve a real source merely to test the endpoint; use a synthetic test document and independently verify the source text, jurisdiction, commencement, amendments and legal applicability first.
