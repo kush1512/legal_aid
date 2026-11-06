@@ -166,7 +166,7 @@ async def download(url: str) -> tuple[bytes,str,str]:
 
 async def ingest(args):
     settings=get_settings()
-    if not settings.supabase_url or not settings.supabase_service_role_key:
+    if not settings.supabase_url or not settings.effective_supabase_secret_key:
         raise RuntimeError("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required for ingestion")
     raw,mime,source_url=await download(args.url)
     path=urlparse(source_url).path.lower()
@@ -185,7 +185,7 @@ async def ingest(args):
         batch=chunks[start:start+32]
         embeddings.extend(await provider.embed_passages([c["heading"]+"\n"+c["content"] for c in batch]))
 
-    client=create_client(settings.supabase_url,settings.supabase_service_role_key)
+    client=create_client(settings.supabase_url,settings.effective_supabase_secret_key)
     checksum=hashlib.sha256(raw).hexdigest()
     if args.verified and not args.verified_by:
         raise ValueError("--verified requires --verified-by so verification is attributable")
