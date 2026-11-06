@@ -61,7 +61,7 @@ LLM_MODEL=<current-supported-gemini-model>
 GEMINI_API_KEY=<backend-secret>
 ~~~
 
-External LLM/speech calls remain disabled unless all synthetic-demo conditions are met: `ALLOW_EXTERNAL_LLM_FOR_SYNTHETIC=true`, a dedicated account UUID is listed in `SYNTHETIC_DEMO_USER_IDS`, the input is marked synthetic, and the request includes consent. Do not add ordinary user accounts to this list. Real cases stay sensitive and are never sent to free-tier providers.
+External LLM/speech calls remain disabled unless all synthetic-demo conditions are met: `ALLOW_EXTERNAL_LLM_FOR_SYNTHETIC=true`, a dedicated account UUID is listed in `SYNTHETIC_DEMO_USER_IDS`, the input is marked synthetic, and the request includes consent. Configure `ADMIN_USER_IDS` separately for moderation administrators. Do not add ordinary user accounts to this list. Real cases stay sensitive and are never sent to free-tier providers.
 
 ## 4. Groq API and Whisper
 
