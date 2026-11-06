@@ -32,3 +32,25 @@ def test_sensitive_community_writes_are_server_owned():
     from app.storage import Storage
     required={"community_posts","community_comments","lawyer_profiles","reports"}
     assert required.issubset(Storage.SERVER_WRITE_TABLES)
+
+
+def test_supabase_current_keys_take_precedence_over_legacy_keys():
+    from app.config import Settings
+    settings=Settings(
+        supabase_publishable_key="sb_publishable_test",
+        supabase_secret_key="sb_secret_test",
+        supabase_anon_key="legacy_anon",
+        supabase_service_role_key="legacy_service"
+    )
+    assert settings.effective_supabase_publishable_key=="sb_publishable_test"
+    assert settings.effective_supabase_secret_key=="sb_secret_test"
+
+
+def test_supabase_legacy_keys_remain_supported():
+    from app.config import Settings
+    settings=Settings(
+        supabase_anon_key="legacy_anon",
+        supabase_service_role_key="legacy_service"
+    )
+    assert settings.effective_supabase_publishable_key=="legacy_anon"
+    assert settings.effective_supabase_secret_key=="legacy_service"
