@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
 
-from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, UploadFile, File, Form
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -26,7 +26,7 @@ from app.schemas import (
     LawyerOut, ErrorResponse
 )
 from app.security import get_current_user
-from app.storage import Storage, utcnow
+from app.storage import Storage, utcnow\nfrom app.speech import GroqWhisperProvider
 
 settings = get_settings()
 logging.basicConfig(level=settings.log_level.upper(), format="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -142,6 +142,51 @@ def to_message_out(row: dict) -> dict:
             "is_mock":row.get("ai_is_mock",False)
         } if row["role"]=="assistant" else None)
     }
+
+@app.post("/api/v1/speech/transcribe",tags=["speech"])
+async def transcribe_audio(
+    file: UploadFile=File(...),
+    case_id: str | None=Form(default=None),
+    external_ai_consent: bool=Form(default=False),
+    user: dict=Depends(get_current_user)
+):
+    allowed={
+        ".wav":"audio/wav",".mp3":"audio/mpeg",".m4a":"audio/mp4",
+        ".mpeg":"audio/mpeg",".mpga":"audio/mpeg",".webm":"audio/webm",
+        ".ogg":"audio/ogg",".flac":"audio/flac"
+    }
+    import os
+    extension=os.path.splitext(file.filename or "")[1].lower()
+    if extension not in allowed:
+        raise HTTPException(415,"Unsupported audio format")
+    content_type=(file.content_type or "").lower()
+    if not (content_type.startswith("audio/") or content_type=="application/octet-stream"):
+        raise HTTPException(415,"Unsupported audio content type")
+    audio=await file.read(settings.max_audio_bytes+1)
+    if len(audio)>settings.max_audio_bytes:
+        raise HTTPException(413,"Audio file exceeds the configured size limit")
+    if not audio:
+        raise HTTPException(422,"Audio file is empty")
+    if case_id:
+        case=await storage.get_case(user,case_id)
+        if case.get("sensitive",True) and not (
+            settings.allow_external_llm_for_sensitive and external_ai_consent
+        ):
+            raise HTTPException(403,{"code":"PRIVACY_GATE_BLOCKED",
+                                     "message":"Audio was not sent to an external speech provider. Use text input or explicitly authorize processing under the configured policy.",
+                                     "details":[]})
+    if not settings.groq_api_key:
+        raise HTTPException(503,"Speech transcription is not configured; use text input instead")
+    try:
+        transcript=await GroqWhisperProvider(settings).transcribe(audio,file.filename or "audio"+extension,content_type)
+    except ProviderError as exc:
+        raise HTTPException(502,{"code":"PROVIDER_UNAVAILABLE",
+                                 "message":"Speech transcription is temporarily unavailable.","details":[]}) from exc
+    finally:
+        await file.close()
+        del audio
+    return {"transcript":transcript,"provider":"groq_whisper",
+            "model":settings.groq_whisper_model,"audio_stored":False}
 
 @app.get("/api/v1/health", tags=["system"])
 async def health():
