@@ -55,3 +55,33 @@ def test_client_cannot_create_synthetic_case_without_server_allowlist(client,aut
     })
     assert response.status_code==403
     assert response.json()["error"]["code"]=="FORBIDDEN"
+
+def test_immediate_safety_risk_returns_official_112_escalation(client,auth_headers):
+    created=client.post("/api/v1/cases",headers=auth_headers,json={
+        "category":"personal_safety_privacy",
+        "description":"Synthetic immediate safety demonstration."
+    })
+    case_id=created.json()["case"]["id"]
+    response=client.post(f"/api/v1/cases/{case_id}/messages",headers=auth_headers,json={
+        "content":"My partner is threatening to kill me right now."
+    })
+    assert response.status_code==201,response.text
+    escalation=response.json()["escalation"]
+    assert escalation["required"] is True
+    assert escalation["contacts"][0]["number"]=="112"
+    assert "https://112.gov.in/" in escalation["contacts"][0]["url"]
+
+def test_online_financial_fraud_returns_1930_escalation(client,auth_headers):
+    created=client.post("/api/v1/cases",headers=auth_headers,json={
+        "category":"digital_fraud_cybercrime",
+        "description":"Synthetic online payment fraud demonstration."
+    })
+    case_id=created.json()["case"]["id"]
+    response=client.post(f"/api/v1/cases/{case_id}/messages",headers=auth_headers,json={
+        "content":"Someone tricked me into a UPI transfer; money was debited in an online payment scam."
+    })
+    assert response.status_code==201,response.text
+    escalation=response.json()["escalation"]
+    assert escalation["required"] is True
+    assert escalation["contacts"][0]["number"]=="1930"
+    assert escalation["contacts"][0]["url"]=="https://cybercrime.gov.in/"
