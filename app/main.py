@@ -262,7 +262,8 @@ async def add_case_message(case_id: UUID,payload: MessageCreateRequest,user: dic
         try:
             generation,result=await llm.generate_structured_output(
                 prompt,CaseIntakeResult,sensitive=case.get("sensitive",True),
-                user_consent=payload.external_ai_consent
+                user_consent=payload.external_ai_consent,
+                model=settings.case_extraction_model or None
             )
             reply=result.assistant_reply
             ai={"provider":generation.provider,"model":generation.model,
@@ -428,7 +429,8 @@ async def generate_document(payload: DocumentGenerateRequest,user: dict=Depends(
     )
     try:
         generation,draft=await llm.generate_structured_output(
-            prompt,DraftContent,sensitive=sensitive,user_consent=payload.external_ai_consent
+            prompt,DraftContent,sensitive=sensitive,user_consent=payload.external_ai_consent,
+            model=settings.document_draft_model or None
         )
     except ProviderError as exc:
         raise HTTPException(502,{"code":"PROVIDER_UNAVAILABLE",
