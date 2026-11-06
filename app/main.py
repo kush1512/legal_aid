@@ -3,7 +3,7 @@ import re
 import time
 import uuid
 from collections import defaultdict, deque
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Any
 from uuid import UUID
 
@@ -115,8 +115,9 @@ async def validation_error_handler(request: Request, exc: RequestValidationError
 
 @app.exception_handler(Exception)
 async def unexpected_error_handler(request: Request, exc: Exception):
-    logger.exception("unhandled_error request_id=%s type=%s",
-                     getattr(request.state,"request_id","unknown"),type(exc).__name__)
+    # Never log exception text/tracebacks: SDK/database errors can include user payloads.
+    logger.error("unhandled_error request_id=%s type=%s",
+                 getattr(request.state,"request_id","unknown"),type(exc).__name__)
     return JSONResponse(status_code=500,content={"error":{
         "code":"INTERNAL_ERROR","message":"An unexpected error occurred.",
         "details":[],"request_id":getattr(request.state,"request_id",None)
@@ -628,7 +629,7 @@ async def list_case_documents(case_id: UUID,limit: int=Query(20,ge=1,le=100),
             "id":row["id"],"case_id":row["case_id"],"file_name":row["file_name"],
             "mime_type":row["mime_type"],"size_bytes":row["size_bytes"],
             "created_at":row["created_at"],"download_url":signed,
-            "download_url_expires_at":datetime.now(timezone.utc).isoformat() if signed else None
+            "download_url_expires_at":(datetime.now(timezone.utc)+timedelta(seconds=300)).isoformat() if signed else None
         })
     return {"items":items,"page":pagination(limit,offset,total)}
 
@@ -785,14 +786,14 @@ async def list_community_posts(limit: int=Query(20,ge=1,le=100),offset: int=Quer
                                user: dict=Depends(get_current_user)):
     if sort not in ("newest","popular"):
         raise HTTPException(422,"sort must be newest or popular")
-    rows,total=await storage.approved_posts(user,limit,offset,category)
+    rows,total=await storage.approved_posts(user,limit,offset,category,sort)
     items=[{
         "id":x["id"],"title":x["title"],"content":x["content"],"category":x["category"],
         "display_name":"Anonymous" if x.get("anonymous") else (x.get("display_name") or "Community member"),
         "anonymous":x.get("anonymous",False),"created_at":x["created_at"],
-        "comment_count":0,"vote_count":0
+        "comment_count":int(x.get("comment_count",0)),
+        "vote_count":int(x.get("vote_count",0))
     } for x in rows]
-    if sort=="popular": items.sort(key=lambda x:x["vote_count"],reverse=True)
     return {"items":items,"page":pagination(limit,offset,total)}
 
 @app.post("/api/v1/community/posts",status_code=HTTP_201_CREATED,tags=["community"])
