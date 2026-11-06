@@ -27,3 +27,8 @@ def test_private_storage_object_paths_are_bound_to_user_and_case():
             f"{user_id}/{case_id}/random-id/agreement.pdf"
         )
     assert wrong_case.value.status_code==404
+
+def test_sensitive_community_writes_are_server_owned():
+    from app.storage import Storage
+    required={"community_posts","community_comments","lawyer_profiles"}
+    assert required.issubset(Storage.SERVER_WRITE_TABLES)
