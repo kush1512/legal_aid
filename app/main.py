@@ -680,7 +680,7 @@ async def list_case_documents(case_id: UUID,limit: int=Query(20,ge=1,le=100),
     rows,total=await storage.list_owned("case_documents",user,limit,offset,case_id=str(case_id))
     items=[]
     for row in rows:
-        signed=await storage.signed_url(user,row["storage_path"],300)
+        signed=await storage.signed_url(user,str(case_id),row["storage_path"],300)
         items.append({
             "id":row["id"],"case_id":row["case_id"],"file_name":row["file_name"],
             "mime_type":row["mime_type"],"size_bytes":row["size_bytes"],
