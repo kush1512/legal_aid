@@ -1,8 +1,14 @@
 from functools import lru_cache
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
     app_env: str = "development"
     app_name: str = "Legal Aid API"
     app_version: str = "0.1.0"
@@ -32,12 +38,18 @@ class Settings(BaseSettings):
     llm_max_output_tokens: int = 1800
     llm_max_retries: int = 2
     llm_fallback_enabled: bool = True
-    allow_external_llm_for_synthetic: bool = False\n    synthetic_demo_user_ids: str = ""\n    allow_external_llm_for_sensitive: bool = False
+
+    # External LLM processing is off unless explicitly enabled for an allowlisted demo user.
+    allow_external_llm_for_synthetic: bool = False
+    synthetic_demo_user_ids: str = ""
+    # Kept as a separate, stricter opt-in for any future sensitive-data processor.
+    allow_external_llm_for_sensitive: bool = False
 
     embedding_provider: str = "local"
     embedding_model: str = "intfloat/multilingual-e5-small"
     embedding_dimensions: int = 384
     embedding_device: str = "cpu"
+
     groq_whisper_model: str = "whisper-large-v3-turbo"
     max_audio_bytes: int = 20 * 1024 * 1024
     max_upload_bytes: int = 15 * 1024 * 1024
@@ -48,11 +60,20 @@ class Settings(BaseSettings):
 
     @property
     def synthetic_demo_user_id_list(self) -> set[str]:
-        return {item.strip() for item in self.synthetic_demo_user_ids.split(",") if item.strip()}
+        return {
+            item.strip()
+            for item in self.synthetic_demo_user_ids.split(",")
+            if item.strip()
+        }
 
     @property
     def cors_origin_list(self) -> list[str]:
-        return [item.strip() for item in self.cors_origins.split(",") if item.strip()]
+        return [
+            item.strip()
+            for item in self.cors_origins.split(",")
+            if item.strip()
+        ]
+
 
 @lru_cache
 def get_settings() -> Settings:
