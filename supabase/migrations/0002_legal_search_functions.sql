@@ -1,9 +1,11 @@
--- Hybrid legal retrieval RPCs. These functions expose only indexed public legal text.
+-- Hybrid legal retrieval RPCs. Validity is filtered as of an explicit date.
+-- Historical versions can be retrieved by requesting an as_of_date within their effective period.
 create or replace function public.match_legal_chunks(
   query_embedding vector(384),
   match_count int default 10,
   filter_category text default null,
-  filter_jurisdiction text default 'IN'
+  filter_jurisdiction text default 'IN',
+  as_of_date date default current_date
 )
 returns table (
   id uuid, legal_document_id uuid, act_name text, section_label text,
@@ -21,6 +23,8 @@ as $$
   where c.embedding is not null
     and d.jurisdiction in ('IN',filter_jurisdiction)
     and d.verification_status in ('verified','historical')
+    and (d.effective_from is null or d.effective_from <= as_of_date)
+    and (d.effective_to is null or d.effective_to >= as_of_date)
     and (filter_category is null or d.category::text=filter_category)
   order by c.embedding <=> query_embedding
   limit greatest(1, least(match_count, 50));
@@ -30,7 +34,8 @@ create or replace function public.search_legal_keyword(
   search_text text,
   match_count int default 10,
   filter_category text default null,
-  filter_jurisdiction text default 'IN'
+  filter_jurisdiction text default 'IN',
+  as_of_date date default current_date
 )
 returns table (
   id uuid, legal_document_id uuid, act_name text, section_label text,
@@ -48,14 +53,15 @@ as $$
   where c.keyword_text @@ websearch_to_tsquery('simple', search_text)
     and d.jurisdiction in ('IN',filter_jurisdiction)
     and d.verification_status in ('verified','historical')
+    and (d.effective_from is null or d.effective_from <= as_of_date)
+    and (d.effective_to is null or d.effective_to >= as_of_date)
     and (filter_category is null or d.category::text=filter_category)
   order by ts_rank_cd(c.keyword_text, websearch_to_tsquery('simple', search_text)) desc
   limit greatest(1, least(match_count, 50));
 $$;
 
--- The backend uses a server-side service role for KB ingestion/search only.
--- Do not grant RPC execution to anon/authenticated until a public access policy is reviewed.
-revoke all on function public.match_legal_chunks(vector,int,text,text) from public;
-revoke all on function public.search_legal_keyword(text,int,text,text) from public;
-grant execute on function public.match_legal_chunks(vector,int,text,text) to service_role;
-grant execute on function public.search_legal_keyword(text,int,text,text) to service_role;
+-- Legal KB is server-side. The service-role key never leaves the backend.
+revoke all on function public.match_legal_chunks(vector,int,text,text,date) from public;
+revoke all on function public.search_legal_keyword(text,int,text,text,date) from public;
+grant execute on function public.match_legal_chunks(vector,int,text,text,date) to service_role;
+grant execute on function public.search_legal_keyword(text,int,text,text,date) to service_role;
