@@ -156,6 +156,24 @@ def to_message_out(row: dict) -> dict:
         } if row["role"]=="assistant" else None)
     }
 
+def valid_audio_signature(extension: str, data: bytes) -> bool:
+    if extension == ".wav":
+        return len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WAVE"
+    if extension in {".mp3", ".mpeg", ".mpga"}:
+        return data.startswith(b"ID3") or (
+            len(data) >= 2 and data[0] == 0xFF and (data[1] & 0xE0) == 0xE0
+        )
+    if extension == ".m4a":
+        return b"ftyp" in data[:16]
+    if extension == ".webm":
+        return data.startswith(b"\\x1a\\x45\\xdf\\xa3")
+    if extension == ".ogg":
+        return data.startswith(b"OggS")
+    if extension == ".flac":
+        return data.startswith(b"fLaC")
+    return False
+
+
 @app.post("/api/v1/speech/transcribe",tags=["speech"])
 async def transcribe_audio(
     file: UploadFile=File(...),
@@ -174,13 +192,16 @@ async def transcribe_audio(
     if extension not in allowed:
         raise HTTPException(415,"Unsupported audio format")
     content_type=(file.content_type or "").lower()
-    if not (content_type.startswith("audio/") or content_type=="application/octet-stream"):
-        raise HTTPException(415,"Unsupported audio content type")
+    expected_type=allowed[extension]
+    if content_type not in (expected_type,"application/octet-stream"):
+        raise HTTPException(415,"Audio content type does not match its extension")
     audio=await file.read(settings.max_audio_bytes+1)
     if len(audio)>settings.max_audio_bytes:
         raise HTTPException(413,"Audio file exceeds the configured size limit")
     if not audio:
         raise HTTPException(422,"Audio file is empty")
+    if not valid_audio_signature(extension,audio):
+        raise HTTPException(415,"Audio file content does not match its declared format")
     if case_id:
         case=await storage.get_case(user,case_id)
         synthetic_demo=bool(case.get("synthetic_demo",False))
@@ -191,7 +212,7 @@ async def transcribe_audio(
     if not settings.groq_api_key:
         raise HTTPException(503,"Speech transcription is not configured; use text input instead")
     try:
-        transcript=await GroqWhisperProvider(settings).transcribe(audio,file.filename or "audio"+extension,content_type)
+        transcript=await GroqWhisperProvider(settings).transcribe(audio,file.filename or "audio"+extension,expected_type)
     except ProviderError as exc:
         raise HTTPException(502,{"code":"PROVIDER_UNAVAILABLE",
                                  "message":"Speech transcription is temporarily unavailable.","details":[]}) from exc
