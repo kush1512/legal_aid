@@ -134,6 +134,17 @@ def to_case_out(row: dict) -> dict:
         "latest_message_at":row.get("latest_message_at")
     }
 
+def is_allowlisted_synthetic_user(user: dict) -> bool:
+    return user.get("id") in settings.synthetic_demo_user_id_list
+
+def can_use_external_synthetic_ai(user: dict, synthetic_demo: bool, consent: bool) -> bool:
+    return bool(
+        synthetic_demo
+        and consent
+        and settings.allow_external_llm_for_synthetic
+        and is_allowlisted_synthetic_user(user)
+    )
+
 def to_message_out(row: dict) -> dict:
     return {
         "id":row["id"],"case_id":row["case_id"],"role":row["role"],
@@ -149,6 +160,7 @@ async def transcribe_audio(
     file: UploadFile=File(...),
     case_id: str | None=Form(default=None),
     external_ai_consent: bool=Form(default=False),
+    synthetic_demo: bool=Form(default=False),
     user: dict=Depends(get_current_user)
 ):
     allowed={
@@ -170,12 +182,11 @@ async def transcribe_audio(
         raise HTTPException(422,"Audio file is empty")
     if case_id:
         case=await storage.get_case(user,case_id)
-        if case.get("sensitive",True) and not (
-            settings.allow_external_llm_for_sensitive and external_ai_consent
-        ):
-            raise HTTPException(403,{"code":"PRIVACY_GATE_BLOCKED",
-                                     "message":"Audio was not sent to an external speech provider. Use text input or explicitly authorize processing under the configured policy.",
-                                     "details":[]})
+        synthetic_demo=bool(case.get("synthetic_demo",False))
+    if not can_use_external_synthetic_ai(user,synthetic_demo,external_ai_consent):
+        raise HTTPException(403,{"code":"PRIVACY_GATE_BLOCKED",
+                                 "message":"External speech transcription is available only for allowlisted synthetic demonstration cases with explicit consent. Use text input for real cases.",
+                                 "details":[]})
     if not settings.groq_api_key:
         raise HTTPException(503,"Speech transcription is not configured; use text input instead")
     try:
@@ -204,11 +215,17 @@ async def health():
 
 @app.post("/api/v1/cases", response_model=CaseCreateResponse, status_code=HTTP_201_CREATED, tags=["cases"])
 async def create_case(payload: CaseCreateRequest, user: dict=Depends(get_current_user)):
+    synthetic_demo=bool(payload.synthetic_demo)
+    if synthetic_demo and not is_allowlisted_synthetic_user(user):
+        raise HTTPException(403,{"code":"FORBIDDEN",
+                                 "message":"This account is not authorized to create synthetic demo cases.",
+                                 "details":[]})
     title=payload.title or payload.description.strip().splitlines()[0][:120]
     row=await storage.create_case(user,{
         "user_id":user["id"],"title":title,"category":payload.category.value,
         "status":"intake","jurisdiction":payload.jurisdiction.model_dump(exclude_none=True),
-        "preferred_language":payload.preferred_language,"sensitive":payload.sensitive
+        "preferred_language":payload.preferred_language,
+        "synthetic_demo":synthetic_demo,"sensitive":not synthetic_demo
     })
     message=await storage.insert("case_messages",user,{
         "case_id":row["id"],"user_id":user["id"],"role":"user",
@@ -248,10 +265,11 @@ async def add_case_message(case_id: UUID,payload: MessageCreateRequest,user: dic
         f"Case category: {case['category']}\nJurisdiction: {case.get('jurisdiction')}\n"
         f"Conversation:\n{conversation}"
     )
-    blocked=case.get("sensitive",True) and not (
-        settings.allow_external_llm_for_sensitive and payload.external_ai_consent
+    external_demo_allowed=can_use_external_synthetic_ai(
+        user,bool(case.get("synthetic_demo",False)),payload.external_ai_consent
     )
-    if blocked and settings.llm_provider!="mock":
+    blocked=(settings.llm_provider!="mock" and not external_demo_allowed)
+    if blocked:
         reply=(
             "This case is marked sensitive. No external AI provider was contacted. "
             "You can continue by adding relevant dates, people involved, documents and steps already taken. "
@@ -264,6 +282,7 @@ async def add_case_message(case_id: UUID,payload: MessageCreateRequest,user: dic
             generation,result=await llm.generate_structured_output(
                 prompt,CaseIntakeResult,sensitive=case.get("sensitive",True),
                 user_consent=payload.external_ai_consent,
+                synthetic_demo=external_demo_allowed,
                 model=settings.case_extraction_model or None
             )
             reply=result.assistant_reply
@@ -330,6 +349,13 @@ async def generate_case_assessment(
     user: dict=Depends(get_current_user)
 ):
     case=await storage.get_case(user,str(case_id))
+    external_demo_allowed=can_use_external_synthetic_ai(
+        user,bool(case.get("synthetic_demo",False)),payload.external_ai_consent
+    )
+    if settings.llm_provider!="mock" and not external_demo_allowed:
+        raise HTTPException(403,{"code":"PRIVACY_GATE_BLOCKED",
+                                 "message":"External assessment is disabled for real cases. Use the mock provider or an approved synthetic demo account.",
+                                 "details":[]})
     messages=await storage.list_messages(user,str(case_id))
     conversation="\\n".join(f'{m["role"]}: {m["content"]}' for m in messages[-20:])
     retrieval_query=(case["category"]+" "+str(case.get("jurisdiction"))+" "+
@@ -373,6 +399,7 @@ async def generate_case_assessment(
         generation,generated=await llm.generate_structured_output(
             prompt,AssessmentContent,sensitive=case.get("sensitive",True),
             user_consent=payload.external_ai_consent,
+            synthetic_demo=external_demo_allowed,
             model=settings.legal_explanation_model or None
         )
     except ProviderError as exc:
@@ -587,20 +614,21 @@ async def get_legal_provision(provision_id: UUID,user: dict=Depends(get_current_
 async def generate_document(payload: DocumentGenerateRequest,user: dict=Depends(get_current_user)):
     case=None
     context=payload.facts or {}
-    sensitive=False
+    synthetic_demo=bool(payload.synthetic_demo)
+    sensitive=True
     if payload.case_id:
         case=await storage.get_case(user,str(payload.case_id))
-        sensitive=case.get("sensitive",True)
+        synthetic_demo=bool(case.get("synthetic_demo",False))
+        sensitive=bool(case.get("sensitive",True))
         messages=await storage.list_messages(user,str(payload.case_id))
         context={
             "category":case["category"],"jurisdiction":case.get("jurisdiction"),
             "conversation":[{"role":m["role"],"content":m["content"]} for m in messages[-20:]]
         }
-    if sensitive and settings.llm_provider!="mock" and not (
-        settings.allow_external_llm_for_sensitive and payload.external_ai_consent
-    ):
+    external_demo_allowed=can_use_external_synthetic_ai(user,synthetic_demo,payload.external_ai_consent)
+    if settings.llm_provider!="mock" and not external_demo_allowed:
         raise HTTPException(403,{"code":"PRIVACY_GATE_BLOCKED",
-                                 "message":"External AI drafting is disabled for this sensitive case.",
+                                 "message":"External drafting is disabled for real cases. Use the mock provider or an approved synthetic demo account.",
                                  "details":[]})
     prompt=(
         "Prepare a preliminary Indian legal document draft. Do not invent facts, dates, names, "
@@ -614,6 +642,7 @@ async def generate_document(payload: DocumentGenerateRequest,user: dict=Depends(
     try:
         generation,draft=await llm.generate_structured_output(
             prompt,DraftContent,sensitive=sensitive,user_consent=payload.external_ai_consent,
+            synthetic_demo=external_demo_allowed,
             model=settings.document_draft_model or None
         )
     except ProviderError as exc:
