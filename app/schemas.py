@@ -256,3 +256,19 @@ class CommunityModerationRequest(BaseModel):
 class LawyerVerificationUpdateRequest(BaseModel):
     status: Literal["verified", "rejected"]
     notes: str | None = Field(default=None, max_length=2000)
+
+
+class LegalSourceReviewChecklist(BaseModel):
+    official_source_confirmed: bool = False
+    document_identity_confirmed: bool = False
+    content_integrity_confirmed: bool = False
+    jurisdiction_confirmed: bool = False
+    effective_dates_reviewed: bool = False
+    amendments_reviewed: bool = False
+    legal_applicability_reviewed: bool = False
+
+
+class LegalSourceReviewRequest(BaseModel):
+    decision: Literal["verified", "historical", "rejected"]
+    rationale: str = Field(min_length=20, max_length=2000)
+    checklist: LegalSourceReviewChecklist
