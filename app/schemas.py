@@ -70,6 +70,7 @@ class FactOut(BaseModel):
     key: str
     value: Any
     source: Literal["user_provided", "document", "ai_inference"]
+    evidence_quote: str | None = None
     confidence: float | None = None
     verified: bool = False
 
@@ -163,6 +164,23 @@ class CommunityPostCreateRequest(BaseModel):
     content: str = Field(min_length=10, max_length=6000)
     category: Category
     anonymous: bool = False
+
+class CommunityCommentCreateRequest(BaseModel):
+    content: str = Field(min_length=3, max_length=3000)
+
+
+class CommunityCommentOut(BaseModel):
+    id: UUID
+    post_id: UUID
+    content: str
+    display_name: str = "Community member"
+    created_at: datetime
+    moderation_status: Literal["pending", "approved", "rejected", "removed"]
+
+
+class PostVoteRequest(BaseModel):
+    value: Literal[-1, 1]
+
 
 class CommunityPostOut(BaseModel):
     id: UUID
