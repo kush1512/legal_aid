@@ -45,6 +45,7 @@ Apply SQL migrations in numeric order from `supabase/migrations/`:
 4. `0004_citation_ownership.sql`
 5. `0005_synthetic_demo_privacy.sql`
 6. `0006_server_owned_records.sql`
+7. `0007_community_feed_projection.sql`
 
 Set `SUPABASE_URL`, `SUPABASE_ANON_KEY` and (server-only) `SUPABASE_SERVICE_ROLE_KEY`. Set `MOCK_STORAGE=false` and `DEV_AUTH_BYPASS=false`. Frontend code must never receive the service-role key.
 
