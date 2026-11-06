@@ -32,7 +32,7 @@ class Settings(BaseSettings):
     llm_max_output_tokens: int = 1800
     llm_max_retries: int = 2
     llm_fallback_enabled: bool = True
-    allow_external_llm_for_sensitive: bool = False
+    allow_external_llm_for_synthetic: bool = False\n    synthetic_demo_user_ids: str = ""\n    allow_external_llm_for_sensitive: bool = False
 
     embedding_provider: str = "local"
     embedding_model: str = "intfloat/multilingual-e5-small"
