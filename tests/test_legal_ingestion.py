@@ -1,9 +1,8 @@
+import pytest
+
 from scripts.ingest_legal import (
-    extract_html,
-    is_official_https_url,
-    split_long_block,
-    structure_chunks,
-    MAX_CHARS_PER_CHUNK,
+    extract_html, extract_pdf, extract_source, is_official_https_url,
+    parse_args, split_long_block, structure_chunks, MAX_CHARS_PER_CHUNK,
 )
 
 
@@ -13,6 +12,8 @@ def test_official_source_allowlist_requires_https_and_expected_host():
     assert not is_official_https_url("http://www.indiacode.nic.in/handle/123")
     assert not is_official_https_url("https://indiacode.nic.in.attacker.example/document.pdf")
     assert not is_official_https_url("https://example.com/india-code.pdf")
+    assert not is_official_https_url("https://user:pass@indiacode.nic.in/document.pdf")
+    assert not is_official_https_url("https://indiacode.nic.in:8443/document.pdf")
 
 
 def test_split_long_block_enforces_maximum_without_losing_tokens():
@@ -24,11 +25,8 @@ def test_split_long_block_enforces_maximum_without_losing_tokens():
 
 
 def test_split_long_block_preserves_paragraph_order():
-    source = (
-        "FIRST PARAGRAPH has several legal facts. "
-        "SECOND PARAGRAPH contains the next statutory condition.\n\n"
-        "THIRD PARAGRAPH contains the final exception."
-    )
+    source = ("FIRST PARAGRAPH has several legal facts. SECOND PARAGRAPH contains the next statutory condition.\n\n"
+              "THIRD PARAGRAPH contains the final exception.")
     chunks = split_long_block(source, max_chars=65)
     combined = " ".join(chunks)
     assert combined.index("FIRST PARAGRAPH") < combined.index("SECOND PARAGRAPH")
@@ -57,23 +55,38 @@ This section describes the application of the Act.
 
 def test_structure_chunks_splits_long_sections_under_hard_limit():
     long_body = "This is a legal sentence about a statutory rule. " * 250
-    source = "CHAPTER II\n3. Long provision\n" + long_body
-    chunks = structure_chunks(source)
+    chunks = structure_chunks("CHAPTER II\n3. Long provision\n" + long_body)
     assert len(chunks) > 1
     assert all(len(chunk["content"]) <= MAX_CHARS_PER_CHUNK for chunk in chunks)
     assert all(chunk["section_label"] == "3" for chunk in chunks)
 
 
 def test_html_extractor_removes_script_and_navigation_content():
-    html = b"""<html><body>
-    <nav>Navigation noise</nav>
-    <h1>Example Act</h1>
-    <h2>1. Short title</h2>
-    <p>The short title provision.</p>
-    <script>ignore_this_script_value()</script>
-    </body></html>"""
+    html = b"""<html><body><nav>Navigation noise</nav><h1>Example Act</h1>
+    <h2>1. Short title</h2><p>The short title provision.</p>
+    <script>ignore_this_script_value()</script></body></html>"""
     extracted = extract_html(html)
     assert "Example Act" in extracted
     assert "The short title provision" in extracted
     assert "Navigation noise" not in extracted
     assert "ignore_this_script_value" not in extracted
+
+
+def test_pdf_extractor_rejects_non_pdf_bytes():
+    with pytest.raises(ValueError, match="PDF header"):
+        extract_pdf(b"<html>not a PDF</html>")
+
+
+def test_extract_source_rejects_unknown_format():
+    with pytest.raises(ValueError, match="Unsupported source format"):
+        extract_source(b"content", "application/octet-stream", "https://indiacode.nic.in/file.bin")
+
+
+def test_dry_run_flag_is_available(monkeypatch):
+    monkeypatch.setattr("sys.argv", [
+        "ingest_legal", "--url", "https://indiacode.nic.in/act.pdf",
+        "--title", "Example Act", "--source-name", "India Code", "--dry-run",
+    ])
+    args = parse_args()
+    assert args.dry_run is True
+    assert not hasattr(args, "verified")
