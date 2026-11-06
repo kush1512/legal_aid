@@ -19,7 +19,7 @@ class Storage:
             name: [] for name in (
                 "cases","case_messages","case_facts","case_parties","case_timeline","case_assessments","case_documents",
                 "legal_documents","legal_chunks","legal_citations","generated_drafts",
-                "community_posts","community_comments","votes","lawyer_profiles"
+                "community_posts","community_comments","votes","lawyer_profiles","lawyer_verifications","reports"
             )
         }
 
@@ -42,7 +42,7 @@ class Storage:
 
     SERVER_WRITE_TABLES = {
         "case_messages", "case_facts", "case_assessments",
-        "legal_citations", "generated_drafts", "community_posts"
+        "legal_citations", "generated_drafts", "community_posts", "lawyer_profiles", "lawyer_verifications", "reports"
     }
 
     async def _run(self, fn, *args):
@@ -295,4 +295,106 @@ class Storage:
                 except Exception:
                     pass
                 raise
+        return await self._run(op)
+
+
+    async def report_target_exists(self, target_type: str, target_id: str) -> bool:
+        allowed = {
+            "post_id": "community_posts",
+            "comment_id": "community_comments",
+            "lawyer_id": "lawyer_profiles",
+        }
+        table = allowed.get(target_type)
+        if not table:
+            return False
+        if self.is_mock:
+            def op():
+                with self._lock:
+                    return any(row.get("id") == target_id for row in self._memory[table])
+            return await self._run(op)
+        def op():
+            result = self._service_client().table(table).select("id").eq("id", target_id).limit(1).execute()
+            return bool(result.data)
+        return await self._run(op)
+
+    async def list_admin_reports(self, limit: int, offset: int, status: str | None):
+        if self.is_mock:
+            def op():
+                with self._lock:
+                    rows = [row.copy() for row in self._memory["reports"]]
+                if status:
+                    rows = [row for row in rows if row.get("status") == status]
+                rows.sort(key=lambda row: row.get("created_at", ""), reverse=True)
+                return rows[offset:offset + limit], len(rows)
+            return await self._run(op)
+        def op():
+            query = self._service_client().table("reports").select("*", count="exact")
+            if status:
+                query = query.eq("status", status)
+            result = query.order("created_at", desc=True).range(offset, offset + limit - 1).execute()
+            return result.data, result.count or len(result.data)
+        return await self._run(op)
+
+    async def update_report_status(self, report_id: str, status: str):
+        if self.is_mock:
+            def op():
+                with self._lock:
+                    row = next((item for item in self._memory["reports"] if item["id"] == report_id), None)
+                    if row:
+                        row["status"] = status
+                    return row.copy() if row else None
+            return await self._run(op)
+        def op():
+            result = self._service_client().table("reports").update({"status": status}).eq("id", report_id).execute()
+            return result.data[0] if result.data else None
+        return await self._run(op)
+
+    async def moderate_community_post(self, post_id: str, moderation_status: str):
+        if self.is_mock:
+            def op():
+                with self._lock:
+                    row = next((item for item in self._memory["community_posts"] if item["id"] == post_id), None)
+                    if row:
+                        row["moderation_status"] = moderation_status
+                    return row.copy() if row else None
+            return await self._run(op)
+        def op():
+            result = self._service_client().table("community_posts").update(
+                {"moderation_status": moderation_status}
+            ).eq("id", post_id).execute()
+            return result.data[0] if result.data else None
+        return await self._run(op)
+
+    async def update_lawyer_verification(
+        self, lawyer_id: str, status: str, verifier_id: str, notes: str | None
+    ):
+        if self.is_mock:
+            def op():
+                with self._lock:
+                    row = next((item for item in self._memory["lawyer_profiles"] if item["id"] == lawyer_id), None)
+                    if not row:
+                        return None
+                    row["verification_status"] = status
+                    self._memory["lawyer_verifications"].append({
+                        "id": str(uuid4()), "lawyer_id": lawyer_id,
+                        "verifier_id": verifier_id, "status": status,
+                        "notes": notes, "verified_at": utcnow(), "created_at": utcnow()
+                    })
+                    return row.copy()
+            return await self._run(op)
+        def op():
+            client = self._service_client()
+            updated = client.table("lawyer_profiles").update(
+                {"verification_status": status}
+            ).eq("id", lawyer_id).execute()
+            if not updated.data:
+                return None
+            client.table("lawyer_verifications").insert({
+                "lawyer_id": lawyer_id,
+                "verifier_id": verifier_id,
+                "status": status,
+                "notes": notes,
+                "verified_at": utcnow(),
+            }).execute()
+            return updated.data[0]
         return await self._run(op)
