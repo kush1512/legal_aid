@@ -125,6 +125,7 @@ class LegalSearchRequest(BaseModel):
     category: Category | None = None
     jurisdiction: Jurisdiction = Field(default_factory=Jurisdiction)
     language: str = "en"
+    as_of_date: date | None = None
     limit: int = Field(default=10, ge=1, le=30)
 
 class LegalSearchItem(BaseModel):
