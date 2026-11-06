@@ -393,7 +393,7 @@ For a standalone draft, `case_id` may be omitted and `facts` supplied instead.
 **201 Response:** `{"draft": GeneratedDraft}`.
 
 ### GET /community/posts
-List public community posts. Query: `limit`, `offset`, optional `category`, optional `sort` (`newest` or `popular`).
+List public community posts. Query: `limit`, `offset`, optional `category`, optional `sort` (`newest` or `popular`); popular ordering uses server-computed approved-comment and post-vote counts.
 
 **200 Response:** paginated `items: CommunityPost[]`. Private case data is never automatically published.
 
