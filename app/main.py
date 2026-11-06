@@ -346,14 +346,17 @@ async def add_case_message(case_id: UUID,payload: MessageCreateRequest,user: dic
         "content":payload.content,"input_mode":payload.input_mode
     })
     history=await storage.list_messages(user,str(case_id))
-    conversation="\\n".join(f'{m["role"]}: {m["content"]}' for m in history[-12:])
+    conversation="\n".join(f'{m["role"]}: {m["content"]}' for m in history[-12:])
+    escalation=official_escalation_for_case(case["category"],payload.content)
     prompt=(
         "You are the intake assistant for Legal Aid, an Indian legal information platform. "
         "Understand facts; do not provide a legal conclusion in this intake step. Never invent facts. "
         "Mark user statements as user_provided, and label any inference explicitly. Ask only the most "
         "important missing questions. Detect imminent danger or urgent safety risk and flag it. "
         "Do not cite laws or sections unless separately verified by the legal knowledge base. "
-        "Return fields exactly according to the JSON schema.\n"
+        "If there is immediate physical danger, prioritize emergency safety guidance over legal analysis. "
+        "For India, the official emergency response number is 112; for online financial fraud the official "
+        "helpline is 1930. Return fields exactly according to the JSON schema.\n"
         f"Case category: {case['category']}\nJurisdiction: {case.get('jurisdiction')}\n"
         f"Conversation:\n{conversation}"
     )
@@ -364,8 +367,7 @@ async def add_case_message(case_id: UUID,payload: MessageCreateRequest,user: dic
     if blocked:
         reply=(
             "This case is marked sensitive. No external AI provider was contacted. "
-            "You can continue by adding relevant dates, people involved, documents and steps already taken. "
-            "For immediate danger, contact local emergency services or the nearest police station."
+            "You can continue by adding relevant dates, people involved, documents and steps already taken."
         )
         ai={"provider":"privacy_gate","model":"none","is_mock":False,"blocked":True}
         result=None
@@ -386,6 +388,15 @@ async def add_case_message(case_id: UUID,payload: MessageCreateRequest,user: dic
             raise HTTPException(502,{"code":"PROVIDER_UNAVAILABLE",
                                      "message":"AI provider is temporarily unavailable. Your message was saved.",
                                      "details":[]})
+    if result and result.emergency_detected and escalation is None:
+        escalation={
+            "required":True,"priority":"urgent",
+            "instructions":["The intake system flagged a possible immediate safety emergency. If anyone is in immediate danger, call 112 now."],
+            "contacts":[{"name":"India Emergency Response Support System","number":"112","url":"https://112.gov.in/"}],
+            "source_note":"Official Government of India emergency channel."
+        }
+    if escalation:
+        reply=reply+"\n\n"+"\n".join(escalation["instructions"])
     assistant=await storage.insert("case_messages",user,{
         "case_id":str(case_id),"user_id":user["id"],"role":"assistant","content":reply,
         "ai_provider":ai["provider"],"ai_model":ai["model"],"ai_is_mock":ai["is_mock"]
@@ -400,28 +411,30 @@ async def add_case_message(case_id: UUID,payload: MessageCreateRequest,user: dic
         })
     new_status=result.case_status.value if result else "needs_information"
     await storage.update_case_status(user,str(case_id),new_status)
-    # Produce a conservative intake-stage assessment. This is deliberately not a legal opinion:
-    # potentially relevant laws remain empty until source-verified RAG is integrated into assessment.
     assessment_payload={
-        "summary": "Initial intake summary based only on the conversation. " + (reply[:700] if reply else ""),
-        "parties": [],
-        "timeline": [],
-        "evidence": [],
-        "established_facts": [
+        "summary":"Initial intake summary based only on the conversation. "+(reply[:700] if reply else ""),
+        "parties":[],
+        "timeline":[],
+        "evidence":[],
+        "established_facts":[
             f'{fact["key"]}: {fact["value"]}' for fact in facts
             if fact.get("source") in ("user_provided","document")
         ],
-        "assumptions": [],
-        "unknowns": result.unknowns if result else ["Additional facts are required."],
-        "legal_position": "No legal conclusion is made at this intake stage. Current applicable provisions must be retrieved and verified before legal analysis.",
-        "potentially_relevant_laws": [],
-        "options": [],
-        "follow_up_questions": followups,
-        "overall_uncertainty": "high",
-        "confidence": 0.0,
-        "escalation_required": bool(result.emergency_detected) if result else False,
-        "escalation_reason": result.emergency_reason if result else None,
-        "disclaimer": "Preliminary AI-assisted information only. This is not legal advice or legal representation. Obtain qualified professional review."
+        "assumptions":[],
+        "unknowns":result.unknowns if result else ["Additional facts are required."],
+        "legal_position":"No legal conclusion is made at this intake stage. Current applicable provisions must be retrieved and verified before legal analysis.",
+        "potentially_relevant_laws":[],
+        "options":[],
+        "follow_up_questions":followups,
+        "overall_uncertainty":"high",
+        "confidence":0.0,
+        "escalation_required":bool(escalation) or bool(result.emergency_detected if result else False),
+        "escalation_reason":(
+            result.emergency_reason if result and result.emergency_reason
+            else ("Urgent escalation detected from user-provided facts." if escalation else None)
+        ),
+        "escalation_details":escalation,
+        "disclaimer":"Preliminary AI-assisted information only. This is not legal advice or legal representation. Obtain qualified professional review."
     }
     await storage.insert("case_assessments",user,{
         "case_id":str(case_id),"user_id":user["id"],
@@ -430,9 +443,15 @@ async def add_case_message(case_id: UUID,payload: MessageCreateRequest,user: dic
         "model_version":ai.get("version"),"is_mock":ai["is_mock"],
         "retrieved_source_ids":[]
     })
-    return {"user_message":to_message_out(user_message),
-            "assistant_message":to_message_out(assistant),"case_status":new_status,
-            "follow_up_questions":followups,"extracted_facts":facts,"ai":ai}
+    return {
+        "user_message":to_message_out(user_message),
+        "assistant_message":to_message_out(assistant),
+        "case_status":new_status,
+        "follow_up_questions":followups,
+        "extracted_facts":facts,
+        "ai":ai,
+        "escalation":escalation
+    }
 
 @app.post("/api/v1/cases/{case_id}/assessment",tags=["cases"])
 async def generate_case_assessment(
