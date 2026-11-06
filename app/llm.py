@@ -264,6 +264,10 @@ class LLMOrchestrator:
                 raise ProviderError("External AI processing blocked by privacy policy", transient=False)
 
     async def _invoke(self, operation, *, provider_name: str, model: str, sensitive: bool, user_consent: bool):
+        if provider_name != "mock" and sensitive:
+            allowed = self.settings.allow_external_llm_for_sensitive and user_consent
+            if not allowed:
+                raise ProviderError("External AI processing blocked by privacy policy", transient=False)
         provider = self._provider(provider_name)
         self._privacy_check(provider, sensitive=sensitive, user_consent=user_consent)
         last_error: ProviderError | None = None
