@@ -48,28 +48,56 @@ SECTION_RE=re.compile(r"^\s*(?:(?:SECTION|Section|Sec\.)\s*)?(\d+[A-Z]?)\s*[.)-]
 CHAPTER_RE=re.compile(r"^\s*(CHAPTER\s+[IVXLCDM0-9]+.*|PART\s+[IVXLCDM0-9]+.*)\s*$",re.I)
 
 def split_long_block(text: str, max_chars: int=MAX_CHARS_PER_CHUNK) -> list[str]:
+    """Preserve order and paragraph boundaries while enforcing a hard chunk size."""
     paragraphs=[p.strip() for p in re.split(r"\n\s*\n",text) if p.strip()]
-    output=[]; current=""
+    output=[]
+    current=""
+
+    def flush():
+        nonlocal current
+        if current:
+            output.append(current)
+            current=""
+
     for paragraph in paragraphs:
-        if len(paragraph)>max_chars:
-            if current: output.append(current); current=""
-            # Only long individual statutory paragraphs are split at sentence boundaries.
-            sentences=re.split(r"(?<=[.;])\s+(?=[A-Z(\[])",paragraph)
-            if len(sentences)==1:
-                output.extend(paragraph[i:i+max_chars] for i in range(0,len(paragraph),max_chars))
+        if len(paragraph) <= max_chars:
+            candidate=(current+"\n\n"+paragraph).strip() if current else paragraph
+            if len(candidate) <= max_chars:
+                current=candidate
             else:
-                buf=""
-                for sentence in sentences:
-                    if len(buf)+len(sentence)>max_chars and buf:
-                        output.append(buf); buf=""
-                    buf=(buf+" "+sentence).strip()
-                if buf: output.append(buf)
+                flush()
+                current=paragraph
             continue
-        if current and len(current)+len(paragraph)+2>max_chars:
-            output.append(current); current=paragraph
-        else:
-            current=(current+"\n\n"+paragraph).strip()
-    if current: output.append(current)
+
+        flush()
+        sentences=re.split(r"(?<=[.;])\s+(?=[A-Z(\[])",paragraph)
+        buffer=""
+        for sentence in sentences:
+            sentence=sentence.strip()
+            if not sentence:
+                continue
+            if len(sentence) > max_chars:
+                if buffer:
+                    output.append(buffer)
+                    buffer=""
+                # A single very long sentence has no safe sentence boundary;
+                # split at the hard size limit without dropping any characters.
+                output.extend(
+                    sentence[index:index+max_chars]
+                    for index in range(0,len(sentence),max_chars)
+                )
+                continue
+            candidate=(buffer+" "+sentence).strip() if buffer else sentence
+            if len(candidate) <= max_chars:
+                buffer=candidate
+            else:
+                if buffer:
+                    output.append(buffer)
+                buffer=sentence
+        if buffer:
+            output.append(buffer)
+
+    flush()
     return output
 
 def structure_chunks(text: str) -> list[dict]:
@@ -159,6 +187,8 @@ async def ingest(args):
 
     client=create_client(settings.supabase_url,settings.supabase_service_role_key)
     checksum=hashlib.sha256(raw).hexdigest()
+    if args.verified and not args.verified_by:
+        raise ValueError("--verified requires --verified-by so verification is attributable")
     document={
         "title":args.title,"document_type":args.document_type,"act_name":args.act_name,
         "jurisdiction":args.jurisdiction,"category":args.category,
@@ -166,9 +196,10 @@ async def ingest(args):
         "publication_date":args.publication_date,"effective_from":args.effective_from,
         "effective_to":args.effective_to,"version_label":args.version_label,
         "amendment_details":args.amendment_details,
-        "verification_status":"verified" if args.verified else "unverified",
-        "verified_at":date.today().isoformat() if args.verified else None,
-        "verified_by":args.verified_by if args.verified else None,
+        # Keep it out of retrieval until every chunk has been inserted successfully.
+        "verification_status":"unverified",
+        "verified_at":None,
+        "verified_by":None,
         "language":args.language,"content_sha256":checksum
     }
     stored=client.table("legal_documents").insert(document).execute().data[0]
@@ -182,9 +213,19 @@ async def ingest(args):
         })
     for start in range(0,len(rows),100):
         client.table("legal_chunks").insert(rows[start:start+100]).execute()
+
+    final_status="unverified"
+    if args.verified:
+        client.table("legal_documents").update({
+            "verification_status":"verified",
+            "verified_at":date.today().isoformat(),
+            "verified_by":args.verified_by
+        }).eq("id",stored["id"]).execute()
+        final_status="verified"
+
     print({
         "legal_document_id":stored["id"],"chunks":len(rows),
-        "verification_status":document["verification_status"],
+        "verification_status":final_status,
         "source_url":source_url,"sha256":checksum
     })
 
