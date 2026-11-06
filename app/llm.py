@@ -260,7 +260,7 @@ class LLMOrchestrator:
     def _privacy_check(
         self, provider: LLMProvider, *, sensitive: bool,
         user_consent: bool, synthetic_demo: bool
-    ):
+    ) -> None:
         if not provider.external:
             return
         if not (self.settings.allow_external_llm_for_synthetic and synthetic_demo):
@@ -278,7 +278,7 @@ class LLMOrchestrator:
         self, operation, *, provider_name: str, model: str,
         sensitive: bool, user_consent: bool, synthetic_demo: bool
     ):
-        # Check policy before constructing an SDK client or making any network call.
+        # Reject disallowed external work before constructing SDK clients or making network calls.
         if provider_name != "mock":
             if not (self.settings.allow_external_llm_for_synthetic and synthetic_demo):
                 raise ProviderError(
@@ -303,15 +303,15 @@ class LLMOrchestrator:
                 result = await asyncio.wait_for(
                     operation(provider, model), timeout=self.settings.llm_timeout_seconds
                 )
-                generation=result[0] if isinstance(result,tuple) else result
-                usage=generation.usage or {}
+                generation = result[0] if isinstance(result, tuple) else result
+                usage = generation.usage or {}
                 logger.info(
                     "llm_response provider=%s model=%s mock=%s input_tokens=%s output_tokens=%s",
-                    provider_name,model,generation.is_mock,
-                    usage.get("input_tokens"),usage.get("output_tokens")
+                    generation.provider, generation.model, generation.is_mock,
+                    usage.get("input_tokens"), usage.get("output_tokens")
                 )
                 return result
-            except asyncio.TimeoutError as exc:
+            except asyncio.TimeoutError:
                 last_error = ProviderError("LLM provider timed out", transient=True)
             except ProviderError as exc:
                 last_error = exc
@@ -320,48 +320,58 @@ class LLMOrchestrator:
             await asyncio.sleep(min(2 ** attempt, 4))
         raise last_error or ProviderError("LLM provider unavailable", transient=True)
 
-    async def generate_text(self, prompt: str, *, sensitive: bool = False, user_consent: bool = False,
-                            model: str | None = None):
+    async def _with_fallback(
+        self, operation_factory, *, model: str, sensitive: bool,
+        user_consent: bool, synthetic_demo: bool
+    ):
         primary = self.settings.llm_provider
-        selected_model = model or self.settings.llm_model
         try:
             return await self._invoke(
-                lambda p, m: p.generate_text(prompt, model=m, max_tokens=self.settings.llm_max_output_tokens),
-                provider_name=primary, model=selected_model, sensitive=sensitive, user_consent=user_consent, synthetic_demo=synthetic_demo
+                operation_factory, provider_name=primary, model=model,
+                sensitive=sensitive, user_consent=user_consent,
+                synthetic_demo=synthetic_demo
             )
         except ProviderError as exc:
-            if not (exc.transient and self.settings.llm_fallback_enabled and self.settings.fallback_llm_provider):
+            # Only retry eligible transient failures. A second provider receives the
+            # same privacy checks and can never be a silent route around the gate.
+            if not (
+                exc.transient and self.settings.llm_fallback_enabled
+                and self.settings.fallback_llm_provider
+            ):
                 raise
             fallback = self.settings.fallback_llm_provider
-            # Re-run privacy checks independently. Sensitive payloads never move providers silently.
             return await self._invoke(
-                lambda p, m: p.generate_text(prompt, model=m, max_tokens=self.settings.llm_max_output_tokens),
-                provider_name=fallback, model=self.settings.fallback_llm_model or selected_model,
-                sensitive=sensitive, user_consent=user_consent
+                operation_factory, provider_name=fallback,
+                model=self.settings.fallback_llm_model or model,
+                sensitive=sensitive, user_consent=user_consent,
+                synthetic_demo=synthetic_demo
             )
 
-    async def generate_structured_output(self, prompt: str, response_model: Type[BaseModel], *,
-                                         sensitive: bool = False, user_consent: bool = False,
-                                         model: str | None = None):
-        primary = self.settings.llm_provider
+    async def generate_text(
+        self, prompt: str, *, sensitive: bool = False,
+        user_consent: bool = False, synthetic_demo: bool = False,
+        model: str | None = None
+    ):
         selected_model = model or self.settings.llm_model
-        try:
-            return await self._invoke(
-                lambda p, m: p.generate_structured_output(
-                    prompt, model=m, max_tokens=self.settings.llm_max_output_tokens,
-                    response_model=response_model
-                ),
-                provider_name=primary, model=selected_model, sensitive=sensitive, user_consent=user_consent
-            )
-        except ProviderError as exc:
-            if not (exc.transient and self.settings.llm_fallback_enabled and self.settings.fallback_llm_provider):
-                raise
-            fallback = self.settings.fallback_llm_provider
-            return await self._invoke(
-                lambda p, m: p.generate_structured_output(
-                    prompt, model=m, max_tokens=self.settings.llm_max_output_tokens,
-                    response_model=response_model
-                ),
-                provider_name=fallback, model=self.settings.fallback_llm_model or selected_model,
-                sensitive=sensitive, user_consent=user_consent
-            )
+        return await self._with_fallback(
+            lambda p, m: p.generate_text(
+                prompt, model=m, max_tokens=self.settings.llm_max_output_tokens
+            ),
+            model=selected_model, sensitive=sensitive,
+            user_consent=user_consent, synthetic_demo=synthetic_demo
+        )
+
+    async def generate_structured_output(
+        self, prompt: str, response_model: Type[BaseModel], *,
+        sensitive: bool = False, user_consent: bool = False,
+        synthetic_demo: bool = False, model: str | None = None
+    ):
+        selected_model = model or self.settings.llm_model
+        return await self._with_fallback(
+            lambda p, m: p.generate_structured_output(
+                prompt, model=m, max_tokens=self.settings.llm_max_output_tokens,
+                response_model=response_model
+            ),
+            model=selected_model, sensitive=sensitive,
+            user_consent=user_consent, synthetic_demo=synthetic_demo
+        )
