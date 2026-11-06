@@ -80,6 +80,7 @@ class MessageCreateResponse(BaseModel):
     follow_up_questions: list[str] = []
     extracted_facts: list[FactOut] = []
     ai: dict[str, Any]
+    escalation: dict[str, Any] | None = None
 
 class CitationOut(BaseModel):
     id: UUID
