@@ -264,14 +264,12 @@ class Storage:
     async def signed_url(
         self, user: dict, case_id: str, storage_path: str, expires_in: int = 300
     ):
+        self._assert_case_storage_path(user["id"], case_id, storage_path)
         if self.is_mock:
             return None
         # Storage SDK v2 does not inherit the PostgREST JWT configured above.
         # Use the backend key only after verifying case ownership and the exact object prefix.
         await self.get_case(user, case_id)
-        expected_prefix = f'{user["id"]}/{case_id}/'
-        if not storage_path.startswith(expected_prefix):
-            raise HTTPException(404, "Document not found")
         def op():
             result=self._service_client().storage.from_("case-files").create_signed_url(
                 storage_path, expires_in
