@@ -257,19 +257,46 @@ class LLMOrchestrator:
             raise ProviderError(f"Unsupported LLM provider: {name}")
         return providers[name]()
 
-    def _privacy_check(self, provider: LLMProvider, *, sensitive: bool, user_consent: bool):
-        if provider.external and sensitive:
-            allowed = self.settings.allow_external_llm_for_sensitive and user_consent
-            if not allowed:
-                raise ProviderError("External AI processing blocked by privacy policy", transient=False)
+    def _privacy_check(
+        self, provider: LLMProvider, *, sensitive: bool,
+        user_consent: bool, synthetic_demo: bool
+    ):
+        if not provider.external:
+            return
+        if not (self.settings.allow_external_llm_for_synthetic and synthetic_demo):
+            raise ProviderError(
+                "External AI is disabled except for allowlisted synthetic demonstration cases",
+                transient=False
+            )
+        if sensitive and not (self.settings.allow_external_llm_for_sensitive and user_consent):
+            raise ProviderError(
+                "External AI processing blocked by sensitive-data privacy policy",
+                transient=False
+            )
 
-    async def _invoke(self, operation, *, provider_name: str, model: str, sensitive: bool, user_consent: bool):
-        if provider_name != "mock" and sensitive:
-            allowed = self.settings.allow_external_llm_for_sensitive and user_consent
-            if not allowed:
-                raise ProviderError("External AI processing blocked by privacy policy", transient=False)
+    async def _invoke(
+        self, operation, *, provider_name: str, model: str,
+        sensitive: bool, user_consent: bool, synthetic_demo: bool
+    ):
+        # Check policy before constructing an SDK client or making any network call.
+        if provider_name != "mock":
+            if not (self.settings.allow_external_llm_for_synthetic and synthetic_demo):
+                raise ProviderError(
+                    "External AI is disabled except for allowlisted synthetic demonstration cases",
+                    transient=False
+                )
+            if sensitive and not (
+                self.settings.allow_external_llm_for_sensitive and user_consent
+            ):
+                raise ProviderError(
+                    "External AI processing blocked by sensitive-data privacy policy",
+                    transient=False
+                )
         provider = self._provider(provider_name)
-        self._privacy_check(provider, sensitive=sensitive, user_consent=user_consent)
+        self._privacy_check(
+            provider, sensitive=sensitive, user_consent=user_consent,
+            synthetic_demo=synthetic_demo
+        )
         last_error: ProviderError | None = None
         for attempt in range(max(0, self.settings.llm_max_retries) + 1):
             try:
@@ -300,7 +327,7 @@ class LLMOrchestrator:
         try:
             return await self._invoke(
                 lambda p, m: p.generate_text(prompt, model=m, max_tokens=self.settings.llm_max_output_tokens),
-                provider_name=primary, model=selected_model, sensitive=sensitive, user_consent=user_consent
+                provider_name=primary, model=selected_model, sensitive=sensitive, user_consent=user_consent, synthetic_demo=synthetic_demo
             )
         except ProviderError as exc:
             if not (exc.transient and self.settings.llm_fallback_enabled and self.settings.fallback_llm_provider):
