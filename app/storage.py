@@ -261,6 +261,11 @@ class Storage:
             return res.data[0] if res.data else None
         return await self._run(op)
 
+    @staticmethod
+    def _assert_case_storage_path(user_id: str, case_id: str, storage_path: str) -> None:
+        expected_prefix = f"{user_id}/{case_id}/"
+        if not storage_path.startswith(expected_prefix):
+            raise HTTPException(404, "Document not found")
     async def signed_url(
         self, user: dict, case_id: str, storage_path: str, expires_in: int = 300
     ):
