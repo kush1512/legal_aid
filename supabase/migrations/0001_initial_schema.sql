@@ -108,12 +108,12 @@ create table public.legal_chunks (
  paragraph_label text, heading text, content text not null,
  keyword_text tsvector generated always as
   (to_tsvector('simple',coalesce(heading,'') || ' ' || coalesce(content,''))) stored,
- embedding extensions.vector(384), ordinal integer not null default 0,
+ embedding vector(384), ordinal integer not null default 0,
  language text not null default 'en', created_at timestamptz not null default now()
 );
 create index legal_chunks_document_idx on public.legal_chunks(legal_document_id,ordinal);
 create index legal_chunks_keyword_idx on public.legal_chunks using gin(keyword_text);
-create index legal_chunks_embedding_idx on public.legal_chunks using hnsw(embedding extensions.vector_cosine_ops);
+create index legal_chunks_embedding_idx on public.legal_chunks using hnsw(embedding vector_cosine_ops);
 
 create table public.case_assessments (
  id uuid primary key default gen_random_uuid(),
