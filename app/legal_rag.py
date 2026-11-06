@@ -19,9 +19,9 @@ _cache_lock = threading.Lock()
 
 def _kb_client():
     settings = get_settings()
-    if not (settings.supabase_url and settings.supabase_service_role_key):
+    if not (settings.supabase_url and settings.effective_supabase_secret_key):
         raise HTTPException(503, "Legal knowledge base is not configured")
-    return create_client(settings.supabase_url, settings.supabase_service_role_key)
+    return create_client(settings.supabase_url, settings.effective_supabase_secret_key)
 
 
 async def hybrid_legal_search(
