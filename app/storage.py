@@ -35,6 +35,16 @@ class Storage:
             client.postgrest.auth(token)
         return client
 
+    def _service_client(self):
+        if not self.s.supabase_url or not self.s.supabase_service_role_key:
+            raise HTTPException(503, "Backend service storage is not configured")
+        return create_client(self.s.supabase_url, self.s.supabase_service_role_key)
+
+    SERVER_WRITE_TABLES = {
+        "case_messages", "case_facts", "case_assessments",
+        "legal_citations", "generated_drafts"
+    }
+
     async def _run(self, fn, *args):
         return await run_in_threadpool(fn, *args)
 
@@ -48,7 +58,9 @@ class Storage:
         if self.is_mock:
             return await self._run(self._memory_insert, "cases", row)
         def op():
-            return self._client(user["token"]).table("cases").insert(row).execute().data[0]
+            # The API derives user_id from a verified Supabase JWT before this privileged insert.
+            # Service-role insertion is required for server-controlled sensitive/demo columns.
+            return self._service_client().table("cases").insert(row).execute().data[0]
         return await self._run(op)
 
     async def list_cases(self, user: dict, limit: int, offset: int, category: str | None, status: str | None):
@@ -89,7 +101,8 @@ class Storage:
         if self.is_mock:
             return await self._run(self._memory_insert, table, row)
         def op():
-            return self._client(user["token"]).table(table).insert(row).execute().data[0]
+            client = self._service_client() if table in self.SERVER_WRITE_TABLES else self._client(user["token"])
+            return client.table(table).insert(row).execute().data[0]
         return await self._run(op)
 
     async def list_owned(self, table: str, user: dict, limit: int, offset: int, *, case_id: str | None = None):
@@ -228,7 +241,7 @@ class Storage:
             bucket=client.storage.from_("case-files")
             bucket.upload(object_path,content,{"content-type":mime_type,"upsert":"false"})
             try:
-                row=client.table("case_documents").insert({
+                row=self._service_client().table("case_documents").insert({
                     "case_id":case_id,"user_id":user["id"],
                     "storage_bucket":"case-files","storage_path":object_path,
                     "file_name":object_name,"mime_type":mime_type,
