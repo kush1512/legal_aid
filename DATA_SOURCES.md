@@ -61,3 +61,11 @@ Store:
 - Original content checksum and source language.
 
 A provision marked `historical` must be visibly labelled historical. It must not be described as currently in force without verifying the effective dates and subsequent amendments. A matching section does not establish its application to a particular person's facts.
+
+
+## Official escalation resources (not legal authorities)
+
+- India Emergency Response Support System: [112.gov.in](https://112.gov.in/). The official portal describes 112 as the pan-India emergency number for police, fire and medical assistance and documents SOS/112 India app options.
+- National Cyber Crime Reporting Portal: [cybercrime.gov.in](https://cybercrime.gov.in/). The portal directs victims of online financial fraud to call 1930 and report through the portal.
+
+These details support urgent signposting only. They do not constitute case-specific advice or guarantee police/bank action.
