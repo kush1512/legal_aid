@@ -261,12 +261,21 @@ class Storage:
             return res.data[0] if res.data else None
         return await self._run(op)
 
-    async def signed_url(self, user: dict, storage_path: str, expires_in: int = 300):
+    async def signed_url(
+        self, user: dict, case_id: str, storage_path: str, expires_in: int = 300
+    ):
         if self.is_mock:
             return None
+        # Storage SDK v2 does not inherit the PostgREST JWT configured above.
+        # Use the backend key only after verifying case ownership and the exact object prefix.
+        await self.get_case(user, case_id)
+        expected_prefix = f'{user["id"]}/{case_id}/'
+        if not storage_path.startswith(expected_prefix):
+            raise HTTPException(404, "Document not found")
         def op():
-            client=self._client(user["token"])
-            result=client.storage.from_("case-files").create_signed_url(storage_path,expires_in)
+            result=self._service_client().storage.from_("case-files").create_signed_url(
+                storage_path, expires_in
+            )
             return result.get("signedURL") or result.get("signedUrl")
         return await self._run(op)
 
@@ -274,15 +283,20 @@ class Storage:
                                    mime_type: str, content: bytes, sha256: str):
         if self.is_mock:
             raise HTTPException(503,"Private document storage requires Supabase; mock storage does not accept file uploads")
+        # Defence in depth: only allow writes under a case that belongs to this JWT subject.
+        await self.get_case(user, case_id)
         import re
         object_name=re.sub(r"[^A-Za-z0-9._-]","_",file_name)[:120] or "document"
         object_path=f'{user["id"]}/{case_id}/{uuid4()}/{object_name}'
         def op():
-            client=self._client(user["token"])
+            # Storage is accessed with the backend key because the sync SDK client
+            # does not propagate postgrest.auth(token) into the storage sub-client.
+            # Owner check above and the unguessable object key scope this privileged operation.
+            client=self._service_client()
             bucket=client.storage.from_("case-files")
             bucket.upload(object_path,content,{"content-type":mime_type,"upsert":"false"})
             try:
-                row=self._service_client().table("case_documents").insert({
+                row=client.table("case_documents").insert({
                     "case_id":case_id,"user_id":user["id"],
                     "storage_bucket":"case-files","storage_path":object_path,
                     "file_name":object_name,"mime_type":mime_type,
