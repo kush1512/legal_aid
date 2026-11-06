@@ -503,8 +503,8 @@ async def generate_case_assessment(
         "Only discuss legal provisions included in the VERIFIED SOURCE CONTEXT below. A retrieved match "
         "does not prove legal applicability; explain uncertainty and identify missing facts. If source context "
         "is empty, make no legal conclusion, list no law and say verified source material is unavailable. "
-        "Do not claim to be a lawyer or guarantee an outcome. Return the AssessmentContent JSON schema.
-        "For immediate danger in India, identify official emergency number 112; for online financial fraud, identify 1930 and cybercrime.gov.in.\\n"
+        "Do not claim to be a lawyer or guarantee an outcome. Return the AssessmentContent JSON schema.\n"
+        "For immediate danger in India, identify official emergency number 112; for online financial fraud, identify 1930 and cybercrime.gov.in.\n"
         f"Category: {case['category']}\\nJurisdiction: {case.get('jurisdiction')}\\n"
         f"Conversation:\\n{conversation[-30000:]}\\n"
         f"VERIFIED SOURCE CONTEXT:\\n{source_context}"
