@@ -44,7 +44,7 @@ Apply SQL migrations in numeric order from `supabase/migrations/`:
 1. `0001_initial_schema.sql`
 2. `0002_legal_search_functions.sql`
 3. `0003_security_and_private_storage.sql`
-4. `0004_citation_ownership.sql`\n5. `0005_synthetic_demo_privacy.sql`\n6. `0006_server_owned_records.sql`\n7. `0007_community_feed_projection.sql`\n8. `0008_include_general_law_in_category_search.sql`
+4. `0004_citation_ownership.sql`\n5. `0005_synthetic_demo_privacy.sql`\n6. `0006_server_owned_records.sql`\n7. `0007_community_feed_projection.sql`\n8. `0008_include_general_law_in_category_search.sql`\n9. `0009_lock_community_and_lawyer_writes.sql`
 5. `0005_synthetic_demo_privacy.sql`
 6. `0006_server_owned_records.sql`
 7. `0007_community_feed_projection.sql`
