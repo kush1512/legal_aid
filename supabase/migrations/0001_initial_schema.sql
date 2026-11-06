@@ -2,7 +2,7 @@
 -- Apply this file in Supabase SQL Editor or as a migration.
 -- The backend must use verified Supabase JWT identity; never trust client user_id.
 create extension if not exists pgcrypto;
-create schema if not exists extensions;\ncreate extension if not exists vector with schema extensions;
+create extension if not exists vector;
 create extension if not exists pg_trgm;
 
 create type public.case_category as enum ('property_real_estate','marriage_family','digital_fraud_cybercrime','personal_safety_privacy');
