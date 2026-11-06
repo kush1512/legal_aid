@@ -85,3 +85,23 @@ def test_online_financial_fraud_returns_1930_escalation(client,auth_headers):
     assert escalation["required"] is True
     assert escalation["contacts"][0]["number"]=="1930"
     assert escalation["contacts"][0]["url"]=="https://cybercrime.gov.in/"
+
+def test_preliminary_document_draft_is_marked_for_review_and_does_not_invent_sources(client,auth_headers):
+    created=client.post("/api/v1/cases",headers=auth_headers,json={
+        "category":"property_real_estate",
+        "description":"Synthetic case facts for document drafting test."
+    })
+    assert created.status_code==201,created.text
+    case_id=created.json()["case"]["id"]
+    response=client.post("/api/v1/documents/generate",headers=auth_headers,json={
+        "document_type":"legal_notice",
+        "case_id":case_id,
+        "instructions":"Prepare a preliminary notice using only the facts.",
+        "language":"en"
+    })
+    assert response.status_code==201,response.text
+    draft=response.json()["draft"]
+    assert draft["review_required"] is True
+    assert draft["citations"]==[]
+    assert draft["model"]["is_mock"] is True
+    assert "MOCK" in draft["content"]
