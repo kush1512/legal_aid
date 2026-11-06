@@ -327,7 +327,7 @@ List private documents linked to an owned case.
 URLs are short-lived signed URLs; never expose storage object paths as public URLs.
 
 ### POST /legal/search
-Search the verified legal knowledge base. This endpoint does not itself assert legal applicability.
+Search the verified legal knowledge base as of a requested date. If omitted, the server uses the current India-local date. Effective-from/effective-to metadata is applied in SQL; historical versions are returned only for dates within their recorded effective period. This endpoint does not itself assert legal applicability.
 
 **Request**
 ```json
@@ -336,6 +336,7 @@ Search the verified legal knowledge base. This endpoint does not itself assert l
   "category": "property_real_estate",
   "jurisdiction": {"country":"IN","state":"Assam"},
   "language": "en",
+  "as_of_date": "2026-11-06",
   "limit": 10
 }
 ```
