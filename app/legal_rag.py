@@ -1,8 +1,12 @@
 from typing import Any
+import hashlib, threading, time
 from fastapi import HTTPException
 from supabase import create_client
 from app.config import get_settings
 from app.embeddings import get_embedding_provider
+
+_cache: dict[str, tuple[float, list[dict[str,Any]]]] = {}
+_cache_lock = threading.Lock()
 
 def _kb_client():
     settings=get_settings()
@@ -14,6 +18,17 @@ async def hybrid_legal_search(query: str, *, category: str | None, jurisdiction:
     """Combine semantic and PostgreSQL full-text retrieval; retain exact source provenance."""
     import asyncio
     from starlette.concurrency import run_in_threadpool
+    settings=get_settings()
+    cache_key=hashlib.sha256(
+        f"{query.strip().casefold()}|{category or ''}|{jurisdiction}|{limit}".encode("utf-8")
+    ).hexdigest()
+    now=time.monotonic()
+    with _cache_lock:
+        cached=_cache.get(cache_key)
+        if cached and cached[0]>now:
+            return [dict(row) for row in cached[1]]
+        if cached:
+            _cache.pop(cache_key,None)
     embedder=get_embedding_provider()
     query_vector=await embedder.embed_query(query)
     params={"query_embedding":query_vector,"match_count":limit,"filter_category":category,"filter_jurisdiction":jurisdiction}
@@ -33,6 +48,12 @@ async def hybrid_legal_search(query: str, *, category: str | None, jurisdiction:
             item["score"] += weight/(60+rank)
             item["methods"].append("semantic" if weight==0.65 else "keyword")
     output=sorted(fused.values(),key=lambda x:x["score"],reverse=True)[:limit]
+    if settings.request_cache_ttl_seconds>0:
+        with _cache_lock:
+            _cache[cache_key]=(time.monotonic()+settings.request_cache_ttl_seconds,[dict(row) for row in output])
+            if len(_cache)>500:
+                oldest=min(_cache,key=lambda k:_cache[k][0])
+                _cache.pop(oldest,None)
     return output
 
 def verify_indexed_source(row: dict[str,Any]) -> bool:
