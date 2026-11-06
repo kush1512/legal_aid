@@ -21,6 +21,7 @@ from app.legal_rag import hybrid_legal_search, verify_indexed_source, get_provis
 from app.llm import LLMOrchestrator, ProviderError
 from app.schemas import (
     CaseCreateRequest, CaseCreateResponse, CaseListResponse, CaseOut, CaseStatus, AssessmentGenerateRequest,
+    CommunityCommentCreateRequest, PostVoteRequest,
     MessageCreateRequest, MessageCreateResponse, MessageOut,
     LegalSearchRequest, LegalSearchResponse, LegalSearchItem, CitationOut,
     DocumentGenerateRequest, DraftOut, CommunityPostCreateRequest, CommunityPostOut,
@@ -227,6 +228,11 @@ def official_escalation_for_case(category: str, text: str) -> dict[str, Any] | N
     }
 
 
+def normalize_fact_quote(value: str) -> str:
+    """Normalize whitespace/case only; do not accept model paraphrases as verbatim evidence."""
+    return " ".join(re.sub(r"\s+", " ", value.casefold()).split())
+
+
 def to_message_out(row: dict) -> dict:
     return {
         "id":row["id"],"case_id":row["case_id"],"role":row["role"],
@@ -348,6 +354,16 @@ async def get_case(case_id: UUID,user: dict=Depends(get_current_user)):
     row=await storage.get_case(user,str(case_id))
     return {"case":to_case_out(row)}
 
+@app.get("/api/v1/cases/{case_id}/messages",tags=["cases"])
+async def get_case_messages(
+    case_id: UUID,
+    user: dict=Depends(get_current_user)
+):
+    await storage.get_case(user,str(case_id))
+    messages=await storage.list_messages(user,str(case_id))
+    return {"items":[to_message_out(message) for message in messages]}
+
+
 @app.post("/api/v1/cases/{case_id}/messages",response_model=MessageCreateResponse,
           status_code=HTTP_201_CREATED,tags=["cases"])
 async def add_case_message(case_id: UUID,payload: MessageCreateRequest,user: dict=Depends(get_current_user)):
@@ -413,13 +429,29 @@ async def add_case_message(case_id: UUID,payload: MessageCreateRequest,user: dic
         "ai_provider":ai["provider"],"ai_model":ai["model"],"ai_is_mock":ai["is_mock"]
     })
     followups=result.follow_up_questions if result else []
-    facts=[f.model_dump() for f in result.extracted_facts] if result else []
-    for fact in facts:
-        await storage.insert("case_facts",user,{
-            "case_id":str(case_id),"user_id":user["id"],"fact_key":fact["key"],
-            "value":fact["value"],"source":fact["source"],
-            "confidence":fact.get("confidence"),"verified":fact.get("verified",False)
-        })
+    # Never trust the model's source/verified fields. A fact is user-stated only
+    # when the model supplies an exact quote found in a user-authored message.
+    user_text = " ".join(
+        message["content"] for message in history if message["role"] == "user"
+    )
+    normalized_user_text = normalize_fact_quote(user_text)
+    facts=[]
+    if result:
+        for extracted in result.extracted_facts:
+            fact=extracted.model_dump()
+            quote=fact.get("evidence_quote")
+            quote_is_supported=bool(
+                quote and normalize_fact_quote(quote) in normalized_user_text
+            )
+            fact["source"]="user_provided" if quote_is_supported else "ai_inference"
+            fact["verified"]=False
+            facts.append(fact)
+            await storage.insert("case_facts",user,{
+                "case_id":str(case_id),"user_id":user["id"],"fact_key":fact["key"],
+                "value":fact["value"],"source":fact["source"],
+                "evidence_quote":quote if quote_is_supported else None,
+                "confidence":fact.get("confidence"),"verified":False
+            })
     new_status=result.case_status.value if result else "needs_information"
     await storage.update_case_status(user,str(case_id),new_status)
     assessment_payload={
@@ -549,7 +581,14 @@ async def generate_case_assessment(
     assessment_id=str(uuid.uuid4())
     citation_items=[]
     citation_rows=[]
-    for row in retrieved:
+    retrieved_by_id={str(source["id"]):source for source in retrieved}
+    # Models can only reference source IDs supplied in their own retrieval context.
+    selected_source_ids={
+        source_id for source_id in generated.used_source_ids
+        if source_id in retrieved_by_id
+    }
+    for source_id in sorted(selected_source_ids):
+        row=retrieved_by_id[source_id]
         citation_id=str(uuid.uuid4())
         exact_ref=", ".join(x for x in [
             row.get("act_name"),row.get("section_label") or row.get("heading")
@@ -825,7 +864,13 @@ async def generate_document(payload: DocumentGenerateRequest,user: dict=Depends(
     citation_items=[]
     citation_ids=[]
     citation_rows=[]
-    for item in verified_sources:
+    verified_by_id={str(source["id"]):source for source in verified_sources}
+    selected_draft_source_ids={
+        source_id for source_id in draft.used_source_ids
+        if source_id in verified_by_id
+    }
+    for source_id in sorted(selected_draft_source_ids):
+        item=verified_by_id[source_id]
         citation_id=str(uuid.uuid4())
         citation_ids.append(citation_id)
         citation={
@@ -916,6 +961,68 @@ async def create_community_post(payload: CommunityPostCreateRequest,user: dict=D
         "anonymous":payload.anonymous,"created_at":row["created_at"],
         "comment_count":0,"vote_count":0,"moderation_status":"pending"
     }}
+
+@app.get("/api/v1/community/posts/{post_id}/comments",tags=["community"])
+async def list_community_comments(
+    post_id: UUID,
+    limit: int=Query(50,ge=1,le=100),
+    offset: int=Query(0,ge=0),
+    user: dict=Depends(get_current_user)
+):
+    if not await storage.report_target_exists("post_id",str(post_id)):
+        raise HTTPException(404,"Community post not found")
+    rows,total=await storage.approved_comments(str(post_id),limit,offset)
+    return {
+        "items":[{
+            "id":row["id"],"post_id":row["post_id"],"content":row["content"],
+            "display_name":"Community member","created_at":row["created_at"],
+            "moderation_status":"approved"
+        } for row in rows],
+        "page":pagination(limit,offset,total)
+    }
+
+
+@app.post("/api/v1/community/posts/{post_id}/comments",status_code=HTTP_201_CREATED,tags=["community"])
+async def create_community_comment(
+    post_id: UUID,
+    payload: CommunityCommentCreateRequest,
+    user: dict=Depends(get_current_user)
+):
+    if not await storage.report_target_exists("post_id",str(post_id)):
+        raise HTTPException(404,"Community post not found")
+    row=await storage.insert("community_comments",user,{
+        "post_id":str(post_id),"user_id":user["id"],
+        "content":payload.content,"moderation_status":"pending"
+    })
+    return {"comment":{
+        "id":row["id"],"post_id":row["post_id"],"content":row["content"],
+        "display_name":"Community member","created_at":row["created_at"],
+        "moderation_status":"pending"
+    }}
+
+
+@app.post("/api/v1/community/posts/{post_id}/votes",tags=["community"])
+async def vote_on_community_post(
+    post_id: UUID,
+    payload: PostVoteRequest,
+    user: dict=Depends(get_current_user)
+):
+    if not await storage.report_target_exists("post_id",str(post_id)):
+        raise HTTPException(404,"Community post not found")
+    vote=await storage.cast_post_vote(user,str(post_id),payload.value)
+    return {"vote":{"post_id":str(post_id),"value":vote["value"]}}
+
+
+@app.delete("/api/v1/community/posts/{post_id}/votes",tags=["community"])
+async def remove_community_post_vote(
+    post_id: UUID,
+    user: dict=Depends(get_current_user)
+):
+    if not await storage.report_target_exists("post_id",str(post_id)):
+        raise HTTPException(404,"Community post not found")
+    removed=await storage.remove_post_vote(user,str(post_id))
+    return {"removed":removed}
+
 
 @app.get("/api/v1/lawyers",tags=["lawyers"])
 async def list_lawyers(limit: int=Query(20,ge=1,le=100),offset: int=Query(0,ge=0),
