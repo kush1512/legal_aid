@@ -202,10 +202,10 @@ Create an intake case.
   "description": "Describe what happened in your own words.",
   "jurisdiction": {"country": "IN", "state": "Assam", "district": "Kamrup"},
   "preferred_language": "en",
-  "sensitive": false
+  "synthetic_demo": false
 }
 ```
-Required: `category`, `description`. Other fields optional; omitted title may be generated from the description. `sensitive` defaults to true for privacy-safe handling unless the user explicitly marks the case non-sensitive; backend may still classify it as sensitive.
+Required: `category`, `description`. Other fields optional; omitted title may be generated from the description. Clients cannot set case sensitivity. The backend sets real cases to `sensitive=true`. Only a configured synthetic-demo account may set `synthetic_demo=true`; demo status is also subject to server-side allowlisting.
 
 **201 Response**
 ```json
@@ -217,7 +217,8 @@ Required: `category`, `description`. Other fields optional; omitted title may be
     "status": "intake",
     "jurisdiction": {"country": "IN", "state": "Assam", "district": "Kamrup"},
     "preferred_language": "en",
-    "sensitive": false,
+    "sensitive": true,
+    "synthetic_demo": false,
     "created_at": "2026-11-06T10:00:00Z",
     "updated_at": "2026-11-06T10:00:00Z"
   },
@@ -376,7 +377,8 @@ Generate a preliminary draft. Drafts are not filed, signed, approved or a substi
   "document_type": "legal_notice",
   "case_id": "uuid",
   "instructions": "Request delivery of vacant possession within a reasonable period.",
-  "language": "en"
+  "language": "en",
+  "synthetic_demo": false
 }
 ```
 For a standalone draft, `case_id` may be omitted and `facts` supplied instead.
@@ -440,7 +442,7 @@ Unauthenticated readiness/liveness check.
 Health response must not reveal secrets, internal URLs, stack traces or sensitive configuration.
 
 ### POST /speech/transcribe (additive voice endpoint)
-Multipart form fields: `file` (required audio file), `case_id` (optional UUID), `external_ai_consent` (boolean, defaults false).
+Multipart form fields: `file` (required audio file), `case_id` (optional UUID), `synthetic_demo` (boolean, defaults false for standalone audio), and `external_ai_consent` (boolean, defaults false). External transcription requires an allowlisted demo account, backend opt-in, explicit synthetic flag/case marker, and request consent. Real case audio is blocked.
 
 Accepted extensions: WAV, MP3, M4A, MPEG/MPGA, WebM, OGG and FLAC. The maximum size is controlled by `MAX_AUDIO_BYTES`. Sensitive cases are blocked by the privacy gate unless both the server policy and explicit user consent permit external speech processing. Audio is processed in memory and is not stored by the application.
 
@@ -483,7 +485,9 @@ Stable error codes include `VALIDATION_ERROR`, `AUTHENTICATION_REQUIRED`, `FORBI
 - Supabase service-role secret is backend-only. Frontend receives only the anon/publishable key.
 - Private files use private buckets and expiring signed URLs.
 - Do not log prompts, case facts, message bodies, access tokens, document contents or personally identifying details.
-- Free-tier LLM credentials are for synthetic demonstration data only unless provider terms are reviewed and explicit authorization is obtained.
+- Free-tier LLM credentials are for synthetic demonstration data only.
+- External providers are disabled by default. They require `ALLOW_EXTERNAL_LLM_FOR_SYNTHETIC=true`, an account UUID in `SYNTHETIC_DEMO_USER_IDS`, a case created with `synthetic_demo=true`, and explicit per-request consent.
+- Real cases are always marked sensitive by the backend; the client cannot downgrade sensitivity.
 - No silent provider fallback for sensitive content.
 - The backend can block external model calls even when `sensitive=false` if its classifier or policy requires it.
 - AI outputs are informational, may be incomplete, and are not legal representation.
