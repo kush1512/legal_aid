@@ -42,7 +42,7 @@ class Storage:
 
     SERVER_WRITE_TABLES = {
         "case_messages", "case_facts", "case_assessments",
-        "legal_citations", "generated_drafts"
+        "legal_citations", "generated_drafts", "community_posts"
     }
 
     async def _run(self, fn, *args):
@@ -143,7 +143,7 @@ class Storage:
                 return rows[offset:offset+limit],len(rows)
             return await self._run(op)
         def op():
-            q=self._client(user.get("token")).table("community_posts").select("*",count="exact").eq("moderation_status","approved")
+            q=self._service_client().table("community_posts").select("*",count="exact").eq("moderation_status","approved")
             if category:q=q.eq("category",category)
             res=q.order("created_at",desc=True).range(offset,offset+limit-1).execute()
             return res.data,res.count or len(res.data)
@@ -160,7 +160,7 @@ class Storage:
                 return rows[offset:offset+limit],len(rows)
             return await self._run(op)
         def op():
-            q=self._client(user.get("token")).table("lawyer_profiles").select("*",count="exact").eq("verification_status","verified")
+            q=self._service_client().table("lawyer_profiles").select("*",count="exact").eq("verification_status","verified")
             if category:q=q.contains("practice_areas",[category])
             if state:q=q.ilike("state",state)
             if city:q=q.ilike("city",city)
@@ -217,7 +217,7 @@ class Storage:
                     return next((x.copy() for x in self._memory["lawyer_profiles"] if x["id"]==lawyer_id and x.get("verification_status")=="verified"),None)
             return await self._run(op)
         def op():
-            res=self._client(user.get("token")).table("lawyer_profiles").select("*").eq("id",lawyer_id).eq("verification_status","verified").limit(1).execute()
+            res=self._service_client().table("lawyer_profiles").select("*").eq("id",lawyer_id).eq("verification_status","verified").limit(1).execute()
             return res.data[0] if res.data else None
         return await self._run(op)
 
