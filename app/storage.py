@@ -299,22 +299,60 @@ class Storage:
 
 
     async def report_target_exists(self, target_type: str, target_id: str) -> bool:
-        allowed = {
-            "post_id": "community_posts",
-            "comment_id": "community_comments",
-            "lawyer_id": "lawyer_profiles",
-        }
-        table = allowed.get(target_type)
-        if not table:
+        if target_type not in {"post_id", "comment_id", "lawyer_id"}:
             return False
         if self.is_mock:
             def op():
                 with self._lock:
-                    return any(row.get("id") == target_id for row in self._memory[table])
+                    if target_type == "post_id":
+                        return any(
+                            row.get("id") == target_id and row.get("moderation_status") == "approved"
+                            for row in self._memory["community_posts"]
+                        )
+                    if target_type == "lawyer_id":
+                        return any(
+                            row.get("id") == target_id and row.get("verification_status") == "verified"
+                            for row in self._memory["lawyer_profiles"]
+                        )
+                    comment = next((
+                        row for row in self._memory["community_comments"]
+                        if row.get("id") == target_id and row.get("moderation_status") == "approved"
+                    ), None)
+                    if not comment:
+                        return False
+                    return any(
+                        post.get("id") == comment.get("post_id")
+                        and post.get("moderation_status") == "approved"
+                        for post in self._memory["community_posts"]
+                    )
             return await self._run(op)
+
         def op():
-            result = self._service_client().table(table).select("id").eq("id", target_id).limit(1).execute()
-            return bool(result.data)
+            client = self._service_client()
+            if target_type == "post_id":
+                result = (
+                    client.table("community_posts").select("id")
+                    .eq("id", target_id).eq("moderation_status", "approved").limit(1).execute()
+                )
+                return bool(result.data)
+            if target_type == "lawyer_id":
+                result = (
+                    client.table("lawyer_profiles").select("id")
+                    .eq("id", target_id).eq("verification_status", "verified").limit(1).execute()
+                )
+                return bool(result.data)
+            result = (
+                client.table("community_comments").select("id,post_id")
+                .eq("id", target_id).eq("moderation_status", "approved").limit(1).execute()
+            )
+            if not result.data:
+                return False
+            post_id = result.data[0]["post_id"]
+            parent = (
+                client.table("community_posts").select("id")
+                .eq("id", post_id).eq("moderation_status", "approved").limit(1).execute()
+            )
+            return bool(parent.data)
         return await self._run(op)
 
     async def list_admin_reports(self, limit: int, offset: int, status: str | None):
@@ -398,3 +436,19 @@ class Storage:
             }).execute()
             return updated.data[0]
         return await self._run(op)
+    async def moderate_community_comment(self, comment_id: str, moderation_status: str):
+        if self.is_mock:
+            def op():
+                with self._lock:
+                    row = next((item for item in self._memory["community_comments"] if item["id"] == comment_id), None)
+                    if row:
+                        row["moderation_status"] = moderation_status
+                    return row.copy() if row else None
+            return await self._run(op)
+        def op():
+            result = self._service_client().table("community_comments").update(
+                {"moderation_status": moderation_status}
+            ).eq("id", comment_id).execute()
+            return result.data[0] if result.data else None
+        return await self._run(op)
+
