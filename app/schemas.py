@@ -93,6 +93,10 @@ class CitationOut(BaseModel):
     effective_to: date | None = None
     excerpt: str
 
+
+class AssessmentGenerateRequest(BaseModel):
+    external_ai_consent: bool = False
+
 class AssessmentOut(BaseModel):
     id: UUID
     case_id: UUID
