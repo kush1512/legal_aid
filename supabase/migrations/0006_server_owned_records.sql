@@ -29,7 +29,8 @@ revoke insert, update, delete on public.case_facts from anon, authenticated;
 grant select on public.case_facts to authenticated;
 
 drop policy if exists assessments_owner_insert on public.case_assessments;
-create policy if not exists assessments_owner_read on public.case_assessments
+drop policy if exists assessments_owner_read on public.case_assessments;
+create policy assessments_owner_read on public.case_assessments
 for select to authenticated
 using (user_id = auth.uid() and public.owns_case(case_id));
 revoke insert, update, delete on public.case_assessments from anon, authenticated;
