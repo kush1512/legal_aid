@@ -1062,3 +1062,15 @@ async def verify_lawyer_profile(
         "display_name":row["display_name"],
         "verification_status":row["verification_status"]
     }}
+
+
+@app.patch("/api/v1/admin/community/comments/{comment_id}/moderation",tags=["admin"])
+async def moderate_community_comment(
+    comment_id: UUID,
+    payload: CommunityModerationRequest,
+    admin: dict=Depends(require_admin_user)
+):
+    row=await storage.moderate_community_comment(str(comment_id),payload.moderation_status)
+    if not row:
+        raise HTTPException(404,"Community comment not found")
+    return {"comment":{"id":row["id"],"moderation_status":row["moderation_status"]}}
