@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
 
     supabase_url: str = ""
+    # Prefer current Supabase publishable/secret API keys. Legacy variables remain as fallbacks.
+    supabase_publishable_key: str = ""
+    supabase_secret_key: str = ""
     supabase_anon_key: str = ""
     supabase_service_role_key: str = ""
     supabase_jwt_secret: str = ""
@@ -58,6 +61,14 @@ class Settings(BaseSettings):
     rate_limit_window_seconds: int = 60
     request_cache_ttl_seconds: int = 30
     max_request_chars: int = 12000
+
+    @property
+    def effective_supabase_publishable_key(self) -> str:
+        return self.supabase_publishable_key or self.supabase_anon_key
+
+    @property
+    def effective_supabase_secret_key(self) -> str:
+        return self.supabase_secret_key or self.supabase_service_role_key
 
     @property
     def synthetic_demo_user_id_list(self) -> set[str]:
