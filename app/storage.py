@@ -28,17 +28,17 @@ class Storage:
         return bool(self.s.mock_storage and self.s.app_env == "development")
 
     def _client(self, token: str | None):
-        if not self.s.supabase_url or not self.s.supabase_anon_key:
+        if not self.s.supabase_url or not self.s.effective_supabase_publishable_key:
             raise HTTPException(503, "Supabase is not configured")
-        client = create_client(self.s.supabase_url, self.s.supabase_anon_key)
+        client = create_client(self.s.supabase_url, self.s.effective_supabase_publishable_key)
         if token:
             client.postgrest.auth(token)
         return client
 
     def _service_client(self):
-        if not self.s.supabase_url or not self.s.supabase_service_role_key:
+        if not self.s.supabase_url or not self.s.effective_supabase_secret_key:
             raise HTTPException(503, "Backend service storage is not configured")
-        return create_client(self.s.supabase_url, self.s.supabase_service_role_key)
+        return create_client(self.s.supabase_url, self.s.effective_supabase_secret_key)
 
     SERVER_WRITE_TABLES = {
         "case_messages", "case_facts", "case_assessments",
