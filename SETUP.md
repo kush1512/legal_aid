@@ -16,6 +16,8 @@ python -m venv .venv
 # Windows: .venv\\Scripts\\activate
 source .venv/bin/activate
 pip install -r requirements.txt
+# Optional: enable local multilingual E5 semantic retrieval and ingestion
+pip install -r requirements-embeddings.txt
 cp .env.example .env
 ```
 
