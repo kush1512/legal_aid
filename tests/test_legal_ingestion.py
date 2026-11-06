@@ -2,7 +2,7 @@ import pytest
 
 from scripts.ingest_legal import (
     extract_html, extract_pdf, extract_source, is_official_https_url,
-    parse_args, split_long_block, structure_chunks, MAX_CHARS_PER_CHUNK,
+    parse_args, read_local_source, split_long_block, structure_chunks, MAX_CHARS_PER_CHUNK,
 )
 
 
@@ -90,3 +90,46 @@ def test_dry_run_flag_is_available(monkeypatch):
     args = parse_args()
     assert args.dry_run is True
     assert not hasattr(args, "verified")
+
+
+
+def test_local_source_reads_pdf_only_from_database(tmp_path, monkeypatch):
+    import scripts.ingest_legal as ingestion
+
+    database = tmp_path / "database"
+    database.mkdir()
+    pdf = database / "sample.pdf"
+    pdf.write_bytes(b"%PDF-1.7\\n" + b"x" * 100)
+    monkeypatch.setattr(ingestion, "REPOSITORY_ROOT", tmp_path)
+    monkeypatch.setattr(ingestion, "DATABASE_DIR", database)
+
+    raw, mime, path = read_local_source("database/sample.pdf")
+    assert raw.startswith(b"%PDF-")
+    assert mime == "application/pdf"
+    assert path.endswith("database/sample.pdf")
+
+
+def test_local_source_rejects_paths_outside_database(tmp_path, monkeypatch):
+    import scripts.ingest_legal as ingestion
+
+    database = tmp_path / "database"
+    database.mkdir()
+    outside = tmp_path / "outside.pdf"
+    outside.write_bytes(b"%PDF-1.7\\n" + b"x" * 100)
+    monkeypatch.setattr(ingestion, "REPOSITORY_ROOT", tmp_path)
+    monkeypatch.setattr(ingestion, "DATABASE_DIR", database)
+
+    with pytest.raises(ValueError, match="inside database"):
+        read_local_source("outside.pdf")
+
+
+def test_local_ingestion_requires_official_source_url(monkeypatch):
+    import scripts.ingest_legal as ingestion
+
+    monkeypatch.setattr("sys.argv", [
+        "ingest_legal", "--file", "database/sample.pdf",
+        "--title", "Example Act", "--source-name", "India Code",
+    ])
+    args = parse_args()
+    with pytest.raises(ValueError, match="official HTTPS URL"):
+        ingestion.load_local_source(args)
