@@ -12,7 +12,7 @@ This repository currently contains:
 - Privacy-gated LLM calls, transient-only fallback, timeouts, bounded retries and usage metadata logging.
 - Local `intfloat/multilingual-e5-small` query/passage embeddings.
 - Hybrid semantic + keyword legal retrieval and an official-source PDF/HTML ingestion CLI.
-- Case intake, assessment snapshot, preliminary draft, community, lawyer, legal search and speech transcription routes.
+- Case intake, assessment snapshot, preliminary draft, community, lawyer, legal search and speech transcription routes.\n- Deterministic urgent escalation signposting for India (112 immediate safety, 1930 online financial fraud).
 - A development-only in-memory storage mode for synthetic tests.
 
 This is a prototype foundation, **not a production legal service**. Free-tier integrations must only process synthetic demonstration data until the provider's current data terms, retention, jurisdiction, user eligibility and authorization have been reviewed. Legal source ingestion still requires a human to verify authority, amendment status and effective dates before setting a source to `verified`.
