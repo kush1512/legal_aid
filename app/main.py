@@ -1,0 +1,428 @@
+import logging
+import time
+import uuid
+from collections import defaultdict, deque
+from datetime import datetime, timezone
+from typing import Any
+from uuid import UUID
+
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.status import HTTP_201_CREATED
+
+from app.ai_models import CaseIntakeResult, DraftContent
+from app.config import get_settings
+from app.embeddings import get_embedding_provider
+from app.legal_rag import hybrid_legal_search, verify_indexed_source, get_provision
+from app.llm import LLMOrchestrator, ProviderError
+from app.schemas import (
+    CaseCreateRequest, CaseCreateResponse, CaseListResponse, CaseOut, CaseStatus,
+    MessageCreateRequest, MessageCreateResponse, MessageOut,
+    LegalSearchRequest, LegalSearchResponse, LegalSearchItem, CitationOut,
+    DocumentGenerateRequest, DraftOut, CommunityPostCreateRequest, CommunityPostOut,
+    LawyerOut, ErrorResponse
+)
+from app.security import get_current_user
+from app.storage import Storage, utcnow
+
+settings = get_settings()
+logging.basicConfig(level=settings.log_level.upper(), format="%(asctime)s %(levelname)s %(name)s %(message)s")
+logger = logging.getLogger("legal_aid.api")
+storage = Storage(settings)
+llm = LLMOrchestrator(settings)
+
+class RateLimitMiddleware(BaseHTTPMiddleware):
+    """Basic per-process limiter; use a shared Redis/edge limiter for multi-instance production."""
+    def __init__(self, app, max_requests: int, window_seconds: int):
+        super().__init__(app)
+        self.max_requests=max_requests
+        self.window_seconds=window_seconds
+        self.hits=defaultdict(deque)
+
+    async def dispatch(self, request: Request, call_next):
+        if request.url.path.endswith("/health"):
+            return await call_next(request)
+        key=request.client.host if request.client else "unknown"
+        now=time.monotonic()
+        queue=self.hits[key]
+        while queue and queue[0] <= now-self.window_seconds:
+            queue.popleft()
+        if len(queue) >= self.max_requests:
+            request_id=getattr(request.state,"request_id",str(uuid.uuid4()))
+            return JSONResponse(status_code=429,content={"error":{
+                "code":"RATE_LIMITED","message":"Too many requests. Please retry later.",
+                "details":[],"request_id":request_id
+            }},headers={"Retry-After":str(self.window_seconds)})
+        queue.append(now)
+        return await call_next(request)
+
+app = FastAPI(
+    title="Legal Aid API", version=settings.app_version,
+    description="Privacy-first legal assistance API. AI output is informational and not legal representation.",
+    openapi_url=f"{settings.api_v1_prefix}/openapi.json",
+    docs_url=f"{settings.api_v1_prefix}/docs",
+    redoc_url=f"{settings.api_v1_prefix}/redoc"
+)
+app.add_middleware(
+    CORSMiddleware, allow_origins=settings.cors_origin_list,
+    allow_credentials=True, allow_methods=["GET","POST","OPTIONS"],
+    allow_headers=["Authorization","Content-Type","X-Dev-User-ID","X-Request-ID"]
+)
+app.add_middleware(RateLimitMiddleware, max_requests=settings.rate_limit_requests,
+                    window_seconds=settings.rate_limit_window_seconds)
+
+@app.middleware("http")
+async def request_context(request: Request, call_next):
+    request.state.request_id=request.headers.get("X-Request-ID") or str(uuid.uuid4())
+    response=await call_next(request)
+    response.headers["X-Request-ID"]=request.state.request_id
+    return response
+
+@app.exception_handler(HTTPException)
+async def http_error_handler(request: Request, exc: HTTPException):
+    detail=exc.detail
+    if isinstance(detail,dict):
+        code=detail.get("code","REQUEST_ERROR")
+        message=detail.get("message","The request could not be completed.")
+        details=detail.get("details",[])
+    else:
+        message=str(detail)
+        code={
+            400:"BAD_REQUEST",401:"AUTHENTICATION_REQUIRED",403:"FORBIDDEN",
+            404:"RESOURCE_NOT_FOUND",409:"CONFLICT",413:"PAYLOAD_TOO_LARGE",
+            415:"UNSUPPORTED_MEDIA_TYPE",422:"VALIDATION_ERROR",429:"RATE_LIMITED",
+            502:"PROVIDER_UNAVAILABLE",503:"SERVICE_UNAVAILABLE",504:"PROVIDER_TIMEOUT"
+        }.get(exc.status_code,"REQUEST_ERROR")
+        if "privacy" in message.lower(): code="PRIVACY_GATE_BLOCKED"
+        details=[]
+    return JSONResponse(status_code=exc.status_code,content={"error":{
+        "code":code,"message":message,"details":details,
+        "request_id":getattr(request.state,"request_id",None)
+    }})
+
+@app.exception_handler(RequestValidationError)
+async def validation_error_handler(request: Request, exc: RequestValidationError):
+    details=[{"field":".".join(str(x) for x in e["loc"]),"issue":e["msg"]} for e in exc.errors()]
+    return JSONResponse(status_code=422,content={"error":{
+        "code":"VALIDATION_ERROR","message":"The request could not be processed.",
+        "details":details,"request_id":getattr(request.state,"request_id",None)
+    }})
+
+@app.exception_handler(Exception)
+async def unexpected_error_handler(request: Request, exc: Exception):
+    logger.exception("unhandled_error request_id=%s type=%s",
+                     getattr(request.state,"request_id","unknown"),type(exc).__name__)
+    return JSONResponse(status_code=500,content={"error":{
+        "code":"INTERNAL_ERROR","message":"An unexpected error occurred.",
+        "details":[],"request_id":getattr(request.state,"request_id",None)
+    }})
+
+def pagination(limit: int, offset: int, total: int) -> dict[str,Any]:
+    return {"limit":limit,"offset":offset,"total":total,"has_more":offset+limit<total}
+
+def to_case_out(row: dict) -> dict:
+    return {
+        "id":row["id"],"title":row["title"],"category":row["category"],
+        "status":row["status"],"jurisdiction":row.get("jurisdiction") or {"country":"IN"},
+        "preferred_language":row.get("preferred_language","en"),
+        "sensitive":row.get("sensitive",True),"created_at":row["created_at"],
+        "updated_at":row.get("updated_at",row["created_at"]),
+        "latest_message_at":row.get("latest_message_at")
+    }
+
+def to_message_out(row: dict) -> dict:
+    return {
+        "id":row["id"],"case_id":row["case_id"],"role":row["role"],
+        "content":row["content"],"created_at":row["created_at"],
+        "ai_metadata":({
+            "provider":row.get("ai_provider"),"model":row.get("ai_model"),
+            "is_mock":row.get("ai_is_mock",False)
+        } if row["role"]=="assistant" else None)
+    }
+
+@app.get("/api/v1/health", tags=["system"])
+async def health():
+    return {
+        "status":"ok","version":settings.app_version,"environment":settings.app_env,
+        "dependencies":{
+            "database":"development_memory" if storage.is_mock else (
+                "configured" if settings.supabase_url and settings.supabase_anon_key else "not_configured"
+            ),
+            "llm":"mock" if settings.llm_provider=="mock" else "configured",
+            "embeddings":settings.embedding_provider
+        }
+    }
+
+@app.post("/api/v1/cases", response_model=CaseCreateResponse, status_code=HTTP_201_CREATED, tags=["cases"])
+async def create_case(payload: CaseCreateRequest, user: dict=Depends(get_current_user)):
+    title=payload.title or payload.description.strip().splitlines()[0][:120]
+    row=await storage.create_case(user,{
+        "user_id":user["id"],"title":title,"category":payload.category.value,
+        "status":"intake","jurisdiction":payload.jurisdiction.model_dump(exclude_none=True),
+        "preferred_language":payload.preferred_language,"sensitive":payload.sensitive
+    })
+    message=await storage.insert("case_messages",user,{
+        "case_id":row["id"],"user_id":user["id"],"role":"user",
+        "content":payload.description,"input_mode":"text"
+    })
+    return {"case":to_case_out(row),"initial_message":to_message_out(message)}
+
+@app.get("/api/v1/cases", response_model=CaseListResponse, tags=["cases"])
+async def list_cases(limit: int=Query(20,ge=1,le=100),offset: int=Query(0,ge=0),
+                     category: str | None=None,status: str | None=None,
+                     user: dict=Depends(get_current_user)):
+    rows,total=await storage.list_cases(user,limit,offset,category,status)
+    return {"items":[to_case_out(x) for x in rows],"page":pagination(limit,offset,total)}
+
+@app.get("/api/v1/cases/{case_id}", tags=["cases"])
+async def get_case(case_id: UUID,user: dict=Depends(get_current_user)):
+    row=await storage.get_case(user,str(case_id))
+    return {"case":to_case_out(row)}
+
+@app.post("/api/v1/cases/{case_id}/messages",response_model=MessageCreateResponse,
+          status_code=HTTP_201_CREATED,tags=["cases"])
+async def add_case_message(case_id: UUID,payload: MessageCreateRequest,user: dict=Depends(get_current_user)):
+    case=await storage.get_case(user,str(case_id))
+    user_message=await storage.insert("case_messages",user,{
+        "case_id":str(case_id),"user_id":user["id"],"role":"user",
+        "content":payload.content,"input_mode":payload.input_mode
+    })
+    history=await storage.list_messages(user,str(case_id))
+    conversation="\\n".join(f'{m["role"]}: {m["content"]}' for m in history[-12:])
+    prompt=(
+        "You are the intake assistant for Legal Aid, an Indian legal information platform. "
+        "Understand facts; do not provide a legal conclusion in this intake step. Never invent facts. "
+        "Mark user statements as user_provided, and label any inference explicitly. Ask only the most "
+        "important missing questions. Detect imminent danger or urgent safety risk and flag it. "
+        "Do not cite laws or sections unless separately verified by the legal knowledge base. "
+        "Return fields exactly according to the JSON schema.\n"
+        f"Case category: {case['category']}\nJurisdiction: {case.get('jurisdiction')}\n"
+        f"Conversation:\n{conversation}"
+    )
+    blocked=case.get("sensitive",True) and not (
+        settings.allow_external_llm_for_sensitive and payload.external_ai_consent
+    )
+    if blocked and settings.llm_provider!="mock":
+        reply=(
+            "This case is marked sensitive. No external AI provider was contacted. "
+            "You can continue by adding relevant dates, people involved, documents and steps already taken. "
+            "For immediate danger, contact local emergency services or the nearest police station."
+        )
+        ai={"provider":"privacy_gate","model":"none","is_mock":False,"blocked":True}
+        result=None
+    else:
+        try:
+            generation,result=await llm.generate_structured_output(
+                prompt,CaseIntakeResult,sensitive=case.get("sensitive",True),
+                user_consent=payload.external_ai_consent
+            )
+            reply=result.assistant_reply
+            ai={"provider":generation.provider,"model":generation.model,
+                "version":generation.version,"is_mock":generation.is_mock,"blocked":False}
+        except ProviderError as exc:
+            logger.warning("case_intake_provider_failure provider=%s transient=%s",
+                           settings.llm_provider,exc.transient)
+            raise HTTPException(502,{"code":"PROVIDER_UNAVAILABLE",
+                                     "message":"AI provider is temporarily unavailable. Your message was saved.",
+                                     "details":[]})
+    assistant=await storage.insert("case_messages",user,{
+        "case_id":str(case_id),"user_id":user["id"],"role":"assistant","content":reply,
+        "ai_provider":ai["provider"],"ai_model":ai["model"],"ai_is_mock":ai["is_mock"]
+    })
+    followups=result.follow_up_questions if result else []
+    facts=[f.model_dump() for f in result.extracted_facts] if result else []
+    for fact in facts:
+        await storage.insert("case_facts",user,{
+            "case_id":str(case_id),"user_id":user["id"],"fact_key":fact["key"],
+            "value":fact["value"],"source":fact["source"],
+            "confidence":fact.get("confidence"),"verified":fact.get("verified",False)
+        })
+    new_status=result.case_status.value if result else "needs_information"
+    await storage.update_case_status(user,str(case_id),new_status)
+    return {"user_message":to_message_out(user_message),
+            "assistant_message":to_message_out(assistant),"case_status":new_status,
+            "follow_up_questions":followups,"extracted_facts":facts,"ai":ai}
+
+@app.get("/api/v1/cases/{case_id}/assessment",tags=["cases"])
+async def get_assessment(case_id: UUID,user: dict=Depends(get_current_user)):
+    await storage.get_case(user,str(case_id))
+    row=await storage.latest_assessment(user,str(case_id))
+    if not row:
+        raise HTTPException(404,{"code":"ASSESSMENT_NOT_FOUND",
+                                 "message":"No completed assessment is available yet.","details":[]})
+    assessment=row["assessment"]
+    return {"assessment":{
+        "id":row["id"],"case_id":row["case_id"],"generated_at":row["created_at"],
+        **assessment,
+        "model":{"provider":row["model_provider"],"name":row["model_name"],
+                 "version":row.get("model_version"),"is_mock":row.get("is_mock",False)}
+    }}
+
+@app.get("/api/v1/cases/{case_id}/documents",tags=["cases"])
+async def list_case_documents(case_id: UUID,limit: int=Query(20,ge=1,le=100),
+                              offset: int=Query(0,ge=0),user: dict=Depends(get_current_user)):
+    await storage.get_case(user,str(case_id))
+    rows,total=await storage.list_owned("case_documents",user,limit,offset,case_id=str(case_id))
+    items=[]
+    for row in rows:
+        signed=await storage.signed_url(user,row["storage_path"],300)
+        items.append({
+            "id":row["id"],"case_id":row["case_id"],"file_name":row["file_name"],
+            "mime_type":row["mime_type"],"size_bytes":row["size_bytes"],
+            "created_at":row["created_at"],"download_url":signed,
+            "download_url_expires_at":datetime.now(timezone.utc).isoformat() if signed else None
+        })
+    return {"items":items,"page":pagination(limit,offset,total)}
+
+@app.post("/api/v1/legal/search",response_model=LegalSearchResponse,tags=["legal"])
+async def legal_search(payload: LegalSearchRequest,user: dict=Depends(get_current_user)):
+    results=await hybrid_legal_search(
+        payload.query,category=payload.category.value if payload.category else None,
+        jurisdiction=payload.jurisdiction.country,limit=payload.limit
+    )
+    verified=[r for r in results if verify_indexed_source(r)]
+    max_score=max((r["score"] for r in verified),default=1)
+    items=[]
+    for row in verified:
+        methods=row.get("methods",[])
+        method="hybrid" if len(set(methods))>1 else (methods[0] if methods else "semantic")
+        items.append({
+            "citation":{
+                "id":row["id"],"legal_document_id":row["legal_document_id"],
+                "act_name":row.get("act_name") or "Unspecified Act",
+                "section_label":row.get("section_label"),"title":row.get("heading"),
+                "source_url":row["source_url"],"source_status":row["verification_status"],
+                "effective_from":row.get("effective_from"),"effective_to":row.get("effective_to"),
+                "excerpt":row["content"]
+            },
+            "relevance_score":float(row["score"])/float(max_score or 1),
+            "retrieval_method":method
+        })
+    return {"results":items,
+            "warning":"Retrieved source text is not a determination of legal applicability. Check effective dates and consult a qualified professional."}
+
+@app.get("/api/v1/legal/provision/{provision_id}",tags=["legal"])
+async def get_legal_provision(provision_id: UUID,user: dict=Depends(get_current_user)):
+    provision=await get_provision(str(provision_id))
+    if not provision or provision["source_status"] not in ("verified","historical") or not str(provision.get("source_url","")).startswith("https://"):
+        raise HTTPException(404,"Verified legal provision not found")
+    return {"provision":{
+        "citation":{
+            "id":provision["id"],"legal_document_id":provision["legal_document_id"],
+            "act_name":provision.get("act_name") or "Unspecified Act",
+            "section_label":provision.get("section_label"),"title":provision.get("heading"),
+            "source_url":provision["source_url"],"source_status":provision["source_status"],
+            "effective_from":provision.get("effective_from"),"effective_to":provision.get("effective_to"),
+            "excerpt":provision["full_text"]
+        },
+        "full_text":provision["full_text"],"document_version":provision.get("document_version"),
+        "effective_from":provision.get("effective_from"),"effective_to":provision.get("effective_to"),
+        "jurisdiction":provision.get("jurisdiction")
+    }}
+
+@app.post("/api/v1/documents/generate",response_model=dict,status_code=HTTP_201_CREATED,tags=["documents"])
+async def generate_document(payload: DocumentGenerateRequest,user: dict=Depends(get_current_user)):
+    case=None
+    context=payload.facts or {}
+    sensitive=False
+    if payload.case_id:
+        case=await storage.get_case(user,str(payload.case_id))
+        sensitive=case.get("sensitive",True)
+        messages=await storage.list_messages(user,str(payload.case_id))
+        context={
+            "category":case["category"],"jurisdiction":case.get("jurisdiction"),
+            "conversation":[{"role":m["role"],"content":m["content"]} for m in messages[-20:]]
+        }
+    if sensitive and settings.llm_provider!="mock" and not (
+        settings.allow_external_llm_for_sensitive and payload.external_ai_consent
+    ):
+        raise HTTPException(403,{"code":"PRIVACY_GATE_BLOCKED",
+                                 "message":"External AI drafting is disabled for this sensitive case.",
+                                 "details":[]})
+    prompt=(
+        "Prepare a preliminary Indian legal document draft. Do not invent facts, dates, names, "
+        "addresses, case numbers, statutory sections or procedural history. Use explicit [PLACEHOLDER] "
+        "fields for missing information. Cite no law unless supplied as a verified source (none supplied "
+        "in this request). Do not claim it has been filed, served, approved or legally reviewed. "
+        "Return title, content and placeholders as JSON.\n"
+        f"Document type: {payload.document_type}\nLanguage: {payload.language}\n"
+        f"User instructions: {payload.instructions}\nFacts/context: {context}"
+    )
+    try:
+        generation,draft=await llm.generate_structured_output(
+            prompt,DraftContent,sensitive=sensitive,user_consent=payload.external_ai_consent
+        )
+    except ProviderError as exc:
+        raise HTTPException(502,{"code":"PROVIDER_UNAVAILABLE",
+                                 "message":"The drafting provider is unavailable.","details":[]}) from exc
+    row=await storage.insert("generated_drafts",user,{
+        "case_id":str(payload.case_id) if payload.case_id else None,"user_id":user["id"],
+        "document_type":payload.document_type,"title":draft.title,"content":draft.content,
+        "placeholders":draft.placeholders,"citation_ids":[],"review_required":True,
+        "model_provider":generation.provider,"model_name":generation.model,"is_mock":generation.is_mock
+    })
+    return {"draft":{
+        "id":row["id"],"case_id":row["case_id"],"document_type":row["document_type"],
+        "title":row["title"],"content":row["content"],"placeholders":row["placeholders"],
+        "citations":[],"review_required":True,"created_at":row["created_at"],
+        "model":{"provider":generation.provider,"name":generation.model,"is_mock":generation.is_mock}
+    }}
+
+@app.get("/api/v1/community/posts",tags=["community"])
+async def list_community_posts(limit: int=Query(20,ge=1,le=100),offset: int=Query(0,ge=0),
+                               category: str | None=None,sort: str="newest",
+                               user: dict=Depends(get_current_user)):
+    if sort not in ("newest","popular"):
+        raise HTTPException(422,"sort must be newest or popular")
+    rows,total=await storage.approved_posts(user,limit,offset,category)
+    items=[{
+        "id":x["id"],"title":x["title"],"content":x["content"],"category":x["category"],
+        "display_name":"Anonymous" if x.get("anonymous") else (x.get("display_name") or "Community member"),
+        "anonymous":x.get("anonymous",False),"created_at":x["created_at"],
+        "comment_count":0,"vote_count":0
+    } for x in rows]
+    if sort=="popular": items.sort(key=lambda x:x["vote_count"],reverse=True)
+    return {"items":items,"page":pagination(limit,offset,total)}
+
+@app.post("/api/v1/community/posts",status_code=HTTP_201_CREATED,tags=["community"])
+async def create_community_post(payload: CommunityPostCreateRequest,user: dict=Depends(get_current_user)):
+    row=await storage.insert("community_posts",user,{
+        "user_id":user["id"],"title":payload.title,"content":payload.content,
+        "category":payload.category.value,"anonymous":payload.anonymous,
+        "display_name":None if payload.anonymous else "Community member",
+        "moderation_status":"pending"
+    })
+    return {"post":{
+        "id":row["id"],"title":row["title"],"content":row["content"],"category":row["category"],
+        "display_name":"Anonymous" if payload.anonymous else "Community member",
+        "anonymous":payload.anonymous,"created_at":row["created_at"],
+        "comment_count":0,"vote_count":0,"moderation_status":"pending"
+    }}
+
+@app.get("/api/v1/lawyers",tags=["lawyers"])
+async def list_lawyers(limit: int=Query(20,ge=1,le=100),offset: int=Query(0,ge=0),
+                       category: str | None=None,state: str | None=None,city: str | None=None,
+                       language: str | None=None,user: dict=Depends(get_current_user)):
+    rows,total=await storage.verified_lawyers(user,limit,offset,category,state,city,language)
+    return {"items":[{
+        "id":x["id"],"display_name":x["display_name"],
+        "bar_council_enrolment":x.get("bar_council_enrolment"),
+        "jurisdictions":x.get("jurisdictions",[]),"practice_areas":x.get("practice_areas",[]),
+        "languages":x.get("languages",[]),"verification_status":x["verification_status"],
+        "bio":x.get("bio"),"city":x.get("city"),"state":x.get("state")
+    } for x in rows],"page":pagination(limit,offset,total)}
+
+@app.get("/api/v1/lawyers/{lawyer_id}",tags=["lawyers"])
+async def get_lawyer(lawyer_id: UUID,user: dict=Depends(get_current_user)):
+    row=await storage.get_lawyer(user,str(lawyer_id))
+    if not row: raise HTTPException(404,"Verified lawyer not found")
+    return {"lawyer":{
+        "id":row["id"],"display_name":row["display_name"],
+        "bar_council_enrolment":row.get("bar_council_enrolment"),
+        "jurisdictions":row.get("jurisdictions",[]),"practice_areas":row.get("practice_areas",[]),
+        "languages":row.get("languages",[]),"verification_status":row["verification_status"],
+        "bio":row.get("bio"),"city":row.get("city"),"state":row.get("state")
+    }}
