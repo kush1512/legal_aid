@@ -5,7 +5,8 @@ from app.schemas import Category, CaseStatus
 class ExtractedFact(BaseModel):
     key: str
     value: Any
-    source: Literal["user_provided","document","ai_inference"] = "user_provided"
+    source: Literal["user_provided","ai_inference"] = "ai_inference"
+    evidence_quote: str | None = None
     confidence: float | None = None
     verified: bool = False
 
@@ -35,8 +36,10 @@ class AssessmentContent(BaseModel):
     confidence: float = Field(default=0, ge=0, le=1)
     escalation_required: bool = False
     escalation_reason: str | None = None
+    used_source_ids: list[str] = Field(default_factory=list)
 
 class DraftContent(BaseModel):
     title: str = "Preliminary draft — review required"
     content: str = "[Insert verified facts and obtain professional review before use.]"
     placeholders: list[str] = Field(default_factory=lambda: ["[DATE]","[NAME]","[ADDRESS]"])
+    used_source_ids: list[str] = Field(default_factory=list)
