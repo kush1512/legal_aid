@@ -353,6 +353,54 @@ async def list_case_documents(case_id: UUID,limit: int=Query(20,ge=1,le=100),
         })
     return {"items":items,"page":pagination(limit,offset,total)}
 
+@app.post("/api/v1/cases/{case_id}/documents",status_code=HTTP_201_CREATED,tags=["cases"])
+async def upload_case_document(
+    case_id: UUID,
+    file: UploadFile=File(...),
+    user: dict=Depends(get_current_user)
+):
+    await storage.get_case(user,str(case_id))
+    import os
+    extension=os.path.splitext(file.filename or "")[1].lower()
+    allowed={
+        ".pdf":("application/pdf",lambda b:b.startswith(b"%PDF-")),
+        ".png":("image/png",lambda b:b.startswith(b"\\x89PNG\\r\\n\\x1a\\n")),
+        ".jpg":("image/jpeg",lambda b:b.startswith(b"\\xff\\xd8\\xff")),
+        ".jpeg":("image/jpeg",lambda b:b.startswith(b"\\xff\\xd8\\xff")),
+        ".txt":("text/plain",lambda b: b"\\x00" not in b and _is_utf8(b)),
+        ".docx":("application/vnd.openxmlformats-officedocument.wordprocessingml.document",lambda b:b.startswith(b"PK\\x03\\x04")),
+        ".doc":("application/msword",lambda b:b.startswith(b"\\xd0\\xcf\\x11\\xe0\\xa1\\xb1\\x1a\\xe1"))
+    }
+    if extension not in allowed:
+        raise HTTPException(415,"Unsupported document format")
+    mime_type,signature_check=allowed[extension]
+    content=await file.read(settings.max_upload_bytes+1)
+    try:
+        if not content:
+            raise HTTPException(422,"Document is empty")
+        if len(content)>settings.max_upload_bytes:
+            raise HTTPException(413,"Document exceeds the configured upload limit")
+        if not signature_check(content[:8192]):
+            raise HTTPException(415,"File content does not match its extension")
+        row=await storage.upload_case_document(
+            user,str(case_id),file.filename or "document",mime_type,content,
+            hashlib.sha256(content).hexdigest()
+        )
+    finally:
+        await file.close()
+    return {"document":{
+        "id":row["id"],"case_id":row["case_id"],"file_name":row["file_name"],
+        "mime_type":row["mime_type"],"size_bytes":row["size_bytes"],
+        "created_at":row["created_at"]
+    }}
+
+def _is_utf8(value: bytes) -> bool:
+    try:
+        value.decode("utf-8")
+        return True
+    except UnicodeDecodeError:
+        return False
+
 @app.post("/api/v1/legal/search",response_model=LegalSearchResponse,tags=["legal"])
 async def legal_search(payload: LegalSearchRequest,user: dict=Depends(get_current_user)):
     results=await hybrid_legal_search(
