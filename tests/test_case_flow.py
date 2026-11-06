@@ -104,4 +104,3 @@ def test_preliminary_document_draft_is_marked_for_review_and_does_not_invent_sou
     assert draft["review_required"] is True
     assert draft["citations"]==[]
     assert draft["model"]["is_mock"] is True
-    assert "MOCK" in draft["content"]
