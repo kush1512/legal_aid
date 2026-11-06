@@ -24,7 +24,8 @@ from app.schemas import (
     MessageCreateRequest, MessageCreateResponse, MessageOut,
     LegalSearchRequest, LegalSearchResponse, LegalSearchItem, CitationOut,
     DocumentGenerateRequest, DraftOut, CommunityPostCreateRequest, CommunityPostOut,
-    LawyerOut, ErrorResponse
+    LawyerOut, ErrorResponse, LawyerProfileCreateRequest, ReportCreateRequest,
+    ReportStatusUpdateRequest, CommunityModerationRequest, LawyerVerificationUpdateRequest
 )
 from app.security import get_current_user
 from app.storage import Storage, utcnow
@@ -123,6 +124,14 @@ async def unexpected_error_handler(request: Request, exc: Exception):
         "code":"INTERNAL_ERROR","message":"An unexpected error occurred.",
         "details":[],"request_id":getattr(request.state,"request_id",None)
     }})
+
+def require_admin_user(user: dict=Depends(get_current_user)) -> dict:
+    if user.get("id") not in settings.admin_user_id_list:
+        raise HTTPException(403,{"code":"FORBIDDEN",
+                                 "message":"Administrator permission is required.",
+                                 "details":[]})
+    return user
+
 
 def pagination(limit: int, offset: int, total: int) -> dict[str,Any]:
     return {"limit":limit,"offset":offset,"total":total,"has_more":offset+limit<total}
@@ -931,4 +940,125 @@ async def get_lawyer(lawyer_id: UUID,user: dict=Depends(get_current_user)):
         "jurisdictions":row.get("jurisdictions",[]),"practice_areas":row.get("practice_areas",[]),
         "languages":row.get("languages",[]),"verification_status":row["verification_status"],
         "bio":row.get("bio"),"city":row.get("city"),"state":row.get("state")
+    }}
+
+
+
+@app.post("/api/v1/lawyers",status_code=HTTP_201_CREATED,tags=["lawyers"])
+async def submit_lawyer_profile(
+    payload: LawyerProfileCreateRequest,
+    user: dict=Depends(get_current_user)
+):
+    row=await storage.insert("lawyer_profiles",user,{
+        "user_id":user["id"],
+        **payload.model_dump(mode="json"),
+        "verification_status":"pending"
+    })
+    return {"lawyer":{
+        "id":row["id"],
+        "display_name":row["display_name"],
+        "bar_council_enrolment":row.get("bar_council_enrolment"),
+        "jurisdictions":row.get("jurisdictions",[]),
+        "practice_areas":row.get("practice_areas",[]),
+        "languages":row.get("languages",[]),
+        "verification_status":"pending",
+        "bio":row.get("bio"),
+        "city":row.get("city"),
+        "state":row.get("state")
+    }}
+
+
+@app.post("/api/v1/reports",status_code=HTTP_201_CREATED,tags=["moderation"])
+async def create_report(
+    payload: ReportCreateRequest,
+    user: dict=Depends(get_current_user)
+):
+    target = (
+        ("post_id",str(payload.post_id)) if payload.post_id else
+        ("comment_id",str(payload.comment_id)) if payload.comment_id else
+        ("lawyer_id",str(payload.lawyer_id))
+    )
+    if not await storage.report_target_exists(target[0],target[1]):
+        raise HTTPException(404,{"code":"RESOURCE_NOT_FOUND",
+                                 "message":"The reported item was not found.",
+                                 "details":[]})
+    row=await storage.insert("reports",user,{
+        "reporter_id":user["id"],
+        "post_id":str(payload.post_id) if payload.post_id else None,
+        "comment_id":str(payload.comment_id) if payload.comment_id else None,
+        "lawyer_id":str(payload.lawyer_id) if payload.lawyer_id else None,
+        "reason":payload.reason,
+        "details":payload.details,
+        "status":"open"
+    })
+    return {"report":{
+        "id":row["id"],
+        "status":row.get("status","open"),
+        "created_at":row["created_at"]
+    }}
+
+
+@app.get("/api/v1/admin/reports",tags=["admin"])
+async def list_admin_reports(
+    limit: int=Query(20,ge=1,le=100),
+    offset: int=Query(0,ge=0),
+    status: str | None=Query(default=None,pattern="^(open|reviewing|resolved|dismissed)$"),
+    admin: dict=Depends(require_admin_user)
+):
+    rows,total=await storage.list_admin_reports(limit,offset,status)
+    return {
+        "items":[{
+            "id":row["id"],
+            "reporter_id":row.get("reporter_id"),
+            "post_id":row.get("post_id"),
+            "comment_id":row.get("comment_id"),
+            "lawyer_id":row.get("lawyer_id"),
+            "reason":row["reason"],
+            "details":row.get("details"),
+            "status":row["status"],
+            "created_at":row["created_at"]
+        } for row in rows],
+        "page":pagination(limit,offset,total)
+    }
+
+
+@app.patch("/api/v1/admin/reports/{report_id}",tags=["admin"])
+async def update_admin_report(
+    report_id: UUID,
+    payload: ReportStatusUpdateRequest,
+    admin: dict=Depends(require_admin_user)
+):
+    row=await storage.update_report_status(str(report_id),payload.status)
+    if not row:
+        raise HTTPException(404,"Report not found")
+    return {"report":{"id":row["id"],"status":row["status"]}}
+
+
+@app.patch("/api/v1/admin/community/posts/{post_id}/moderation",tags=["admin"])
+async def moderate_community_post(
+    post_id: UUID,
+    payload: CommunityModerationRequest,
+    admin: dict=Depends(require_admin_user)
+):
+    row=await storage.moderate_community_post(str(post_id),payload.moderation_status)
+    if not row:
+        raise HTTPException(404,"Community post not found")
+    return {"post":{"id":row["id"],"moderation_status":row["moderation_status"]}}
+
+
+@app.patch("/api/v1/admin/lawyers/{lawyer_id}/verification",tags=["admin"])
+async def verify_lawyer_profile(
+    lawyer_id: UUID,
+    payload: LawyerVerificationUpdateRequest,
+    admin: dict=Depends(require_admin_user)
+):
+    row=await storage.update_lawyer_verification(
+        str(lawyer_id),payload.status,admin["id"],payload.notes
+    )
+    if not row:
+        raise HTTPException(404,"Lawyer profile not found")
+    return {"lawyer":{
+        "id":row["id"],
+        "display_name":row["display_name"],
+        "verification_status":row["verification_status"]
     }}
