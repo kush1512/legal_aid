@@ -30,5 +30,5 @@ def test_private_storage_object_paths_are_bound_to_user_and_case():
 
 def test_sensitive_community_writes_are_server_owned():
     from app.storage import Storage
-    required={"community_posts","community_comments","lawyer_profiles"}
+    required={"community_posts","community_comments","lawyer_profiles","reports"}
     assert required.issubset(Storage.SERVER_WRITE_TABLES)
