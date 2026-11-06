@@ -19,7 +19,7 @@ class Storage:
             name: [] for name in (
                 "cases","case_messages","case_facts","case_parties","case_timeline","case_assessments","case_documents",
                 "legal_documents","legal_chunks","legal_citations","generated_drafts",
-                "community_posts","lawyer_profiles"
+                "community_posts","community_comments","votes","lawyer_profiles"
             )
         }
 
@@ -133,20 +133,60 @@ class Storage:
             return result.data[0] if result.data else None
         return await self._run(op)
 
-    async def approved_posts(self, user: dict, limit: int, offset: int, category: str | None):
+    async def approved_posts(
+        self, user: dict, limit: int, offset: int, category: str | None,
+        sort: str = "newest"
+    ):
+        if sort not in ("newest", "popular"):
+            raise HTTPException(422, "sort must be newest or popular")
         if self.is_mock:
             def op():
                 with self._lock:
-                    rows=[x.copy() for x in self._memory["community_posts"] if x.get("moderation_status")=="approved"]
-                if category: rows=[x for x in rows if x["category"]==category]
-                rows.sort(key=lambda x:x["created_at"],reverse=True)
-                return rows[offset:offset+limit],len(rows)
+                    posts = [
+                        row.copy() for row in self._memory["community_posts"]
+                        if row.get("moderation_status") == "approved"
+                    ]
+                    comments = [
+                        row for row in self._memory["community_comments"]
+                        if row.get("moderation_status") == "approved"
+                    ]
+                    votes = list(self._memory["votes"])
+                if category:
+                    posts = [row for row in posts if row["category"] == category]
+                for row in posts:
+                    row["comment_count"] = sum(
+                        1 for comment in comments if comment.get("post_id") == row["id"]
+                    )
+                    row["vote_count"] = sum(
+                        1 for vote in votes if vote.get("post_id") == row["id"]
+                    )
+                    row["display_name"] = (
+                        "Anonymous" if row.get("anonymous")
+                        else (row.get("display_name") or "Community member")
+                    )
+                if sort == "popular":
+                    posts.sort(
+                        key=lambda row: (row["vote_count"], row["comment_count"], row["created_at"]),
+                        reverse=True,
+                    )
+                else:
+                    posts.sort(key=lambda row: row["created_at"], reverse=True)
+                return posts[offset:offset + limit], len(posts)
             return await self._run(op)
+
         def op():
-            q=self._service_client().table("community_posts").select("*",count="exact").eq("moderation_status","approved")
-            if category:q=q.eq("category",category)
-            res=q.order("created_at",desc=True).range(offset,offset+limit-1).execute()
-            return res.data,res.count or len(res.data)
+            query = (
+                self._service_client()
+                .table("community_posts_public")
+                .select("*", count="exact")
+            )
+            if category:
+                query = query.eq("category", category)
+            if sort == "popular":
+                query = query.order("vote_count", desc=True).order("comment_count", desc=True)
+            query = query.order("created_at", desc=True)
+            result = query.range(offset, offset + limit - 1).execute()
+            return result.data, result.count or len(result.data)
         return await self._run(op)
 
     async def verified_lawyers(self, user: dict, limit: int, offset: int, category: str | None, state: str | None, city: str | None, language: str | None):
