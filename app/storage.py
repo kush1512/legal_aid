@@ -452,3 +452,80 @@ class Storage:
             return result.data[0] if result.data else None
         return await self._run(op)
 
+
+
+    async def approved_comments(self, post_id: str, limit: int, offset: int):
+        if self.is_mock:
+            def op():
+                with self._lock:
+                    rows = [
+                        row.copy() for row in self._memory["community_comments"]
+                        if row.get("post_id") == post_id and row.get("moderation_status") == "approved"
+                    ]
+                rows.sort(key=lambda row: row.get("created_at", ""))
+                return rows[offset:offset + limit], len(rows)
+            return await self._run(op)
+
+        def op():
+            result = (
+                self._service_client().table("community_comments")
+                .select("id,post_id,content,created_at,moderation_status", count="exact")
+                .eq("post_id", post_id)
+                .eq("moderation_status", "approved")
+                .order("created_at")
+                .range(offset, offset + limit - 1)
+                .execute()
+            )
+            return result.data, result.count or len(result.data)
+        return await self._run(op)
+
+    async def cast_post_vote(self, user: dict, post_id: str, value: int):
+        if value not in (-1, 1):
+            raise HTTPException(422, "Vote must be -1 or 1")
+        if self.is_mock:
+            def op():
+                with self._lock:
+                    existing = next((
+                        row for row in self._memory["votes"]
+                        if row.get("user_id") == user["id"] and row.get("post_id") == post_id
+                    ), None)
+                    if existing:
+                        existing["value"] = value
+                        existing["created_at"] = utcnow()
+                        return existing.copy()
+                    row = {
+                        "id": str(uuid4()), "user_id": user["id"],
+                        "post_id": post_id, "comment_id": None,
+                        "value": value, "created_at": utcnow()
+                    }
+                    self._memory["votes"].append(row)
+                    return row.copy()
+            return await self._run(op)
+
+        def op():
+            result = self._service_client().table("votes").upsert(
+                {"user_id": user["id"], "post_id": post_id, "comment_id": None, "value": value},
+                on_conflict="user_id,post_id"
+            ).execute()
+            return result.data[0] if result.data else None
+        return await self._run(op)
+
+    async def remove_post_vote(self, user: dict, post_id: str):
+        if self.is_mock:
+            def op():
+                with self._lock:
+                    before = len(self._memory["votes"])
+                    self._memory["votes"] = [
+                        row for row in self._memory["votes"]
+                        if not (row.get("user_id") == user["id"] and row.get("post_id") == post_id)
+                    ]
+                    return before != len(self._memory["votes"])
+            return await self._run(op)
+
+        def op():
+            result = (
+                self._service_client().table("votes").delete()
+                .eq("user_id", user["id"]).eq("post_id", post_id).execute()
+            )
+            return bool(result.data)
+        return await self._run(op)
