@@ -266,6 +266,37 @@ Append a user message and run case understanding. The assistant reply can reques
 }
 ```
 
+### POST /cases/{id}/documents
+
+Upload a private document to an owned case using multipart form data with one `file` field. The backend validates the extension, MIME/signature, and `MAX_UPLOAD_BYTES` limit, then writes bytes to the private Supabase `case-files` bucket and saves metadata. Supported extensions: PDF, PNG, JPG/JPEG, TXT, DOC and DOCX. No local disk persistence is used.
+
+**201 Response**
+```json
+{
+  "document": {
+    "id": "uuid",
+    "case_id": "uuid",
+    "file_name": "agreement.pdf",
+    "mime_type": "application/pdf",
+    "size_bytes": 12345,
+    "created_at": "2026-11-06T10:00:00Z"
+  }
+}
+```
+
+### POST /cases/{id}/assessment
+
+Generate and persist a new case assessment. The backend loads the case conversation, searches the official indexed legal knowledge base, and supplies only verified/historical indexed passages to the LLM. Citations are assembled by the backend from retrieved source records; the model cannot invent citation IDs or URLs. When no verified source is available, the API explicitly returns no legal conclusion and no potentially applicable laws.
+
+**Request**
+```json
+{
+  "external_ai_consent": false
+}
+```
+
+**200 Response:** `{"assessment": CaseAssessment}`. The response includes model provider/model metadata and retrieved citations. Sensitive case processing is blocked unless server policy and explicit consent both permit external use. `GET /cases/{id}/assessment` returns the latest saved assessment.
+
 ### GET /cases/{id}/assessment
 Return the latest assessment. If none exists, respond `404 ASSESSMENT_NOT_FOUND`.
 
