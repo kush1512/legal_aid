@@ -316,7 +316,7 @@ async def health():
         "status":"ok","version":settings.app_version,"environment":settings.app_env,
         "dependencies":{
             "database":"development_memory" if storage.is_mock else (
-                "configured" if settings.supabase_url and settings.supabase_anon_key else "not_configured"
+                "configured" if settings.supabase_url and settings.effective_supabase_publishable_key else "not_configured"
             ),
             "llm":"mock" if settings.llm_provider=="mock" else "configured",
             "embeddings":settings.embedding_provider
