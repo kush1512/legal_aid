@@ -54,7 +54,7 @@ def split_long_block(text: str, max_chars: int=MAX_CHARS_PER_CHUNK) -> list[str]
         if len(paragraph)>max_chars:
             if current: output.append(current); current=""
             # Only long individual statutory paragraphs are split at sentence boundaries.
-            sentences=re.split(r"(?<=[.;])\s+(?=[A-Z(\[]) ",paragraph)
+            sentences=re.split(r"(?<=[.;])\s+(?=[A-Z(\[])",paragraph)
             if len(sentences)==1:
                 output.extend(paragraph[i:i+max_chars] for i in range(0,len(paragraph),max_chars))
             else:
