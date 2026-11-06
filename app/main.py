@@ -515,7 +515,7 @@ async def upload_case_document(
             raise HTTPException(422,"Document is empty")
         if len(content)>settings.max_upload_bytes:
             raise HTTPException(413,"Document exceeds the configured upload limit")
-        if not signature_check(content[:8192]):
+        if not signature_check(content):
             raise HTTPException(415,"File content does not match its extension")
         row=await storage.upload_case_document(
             user,str(case_id),file.filename or "document",mime_type,content,
