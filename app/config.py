@@ -19,6 +19,9 @@ class Settings(BaseSettings):
 
     llm_provider: str = "mock"
     llm_model: str = "mock-legal-aid-v1"
+    case_extraction_model: str = ""
+    legal_explanation_model: str = ""
+    document_draft_model: str = ""
     gemini_api_key: str = ""
     fallback_llm_provider: str = ""
     fallback_llm_model: str = ""
