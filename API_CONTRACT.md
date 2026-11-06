@@ -408,6 +408,22 @@ Unauthenticated readiness/liveness check.
 ```
 Health response must not reveal secrets, internal URLs, stack traces or sensitive configuration.
 
+### POST /speech/transcribe (additive voice endpoint)
+Multipart form fields: `file` (required audio file), `case_id` (optional UUID), `external_ai_consent` (boolean, defaults false).
+
+Accepted extensions: WAV, MP3, M4A, MPEG/MPGA, WebM, OGG and FLAC. The maximum size is controlled by `MAX_AUDIO_BYTES`. Sensitive cases are blocked by the privacy gate unless both the server policy and explicit user consent permit external speech processing. Audio is processed in memory and is not stored by the application.
+
+**200 Response**
+```json
+{
+  "transcript": "Recognized speech text",
+  "provider": "groq_whisper",
+  "model": "whisper-large-v3-turbo",
+  "audio_stored": false
+}
+```
+When transcription is blocked or unavailable, offer the normal text-message endpoint as fallback.
+
 ## 5. HTTP status and error codes
 
 | Status | Meaning |
