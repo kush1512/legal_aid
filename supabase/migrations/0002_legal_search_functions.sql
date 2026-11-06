@@ -1,6 +1,6 @@
 -- Hybrid legal retrieval RPCs. These functions expose only indexed public legal text.
 create or replace function public.match_legal_chunks(
-  query_embedding vector(384),
+  query_embedding extensions.vector(384),
   match_count int default 10,
   filter_category text default null,
   filter_jurisdiction text default 'IN'
@@ -55,7 +55,7 @@ $$;
 
 -- The backend uses a server-side service role for KB ingestion/search only.
 -- Do not grant RPC execution to anon/authenticated until a public access policy is reviewed.
-revoke all on function public.match_legal_chunks(vector,int,text,text) from public;
+revoke all on function public.match_legal_chunks(extensions.vector,int,text,text) from public;
 revoke all on function public.search_legal_keyword(text,int,text,text) from public;
 grant execute on function public.match_legal_chunks(vector,int,text,text) to service_role;
 grant execute on function public.search_legal_keyword(text,int,text,text) to service_role;
