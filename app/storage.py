@@ -168,3 +168,50 @@ class Storage:
             row=client.table("legal_chunks").select("*,legal_documents(*)").eq("id",provision_id).limit(1).execute()
             return row.data[0] if row.data else None
         return await self._run(op)
+
+    async def list_messages(self, user: dict, case_id: str):
+        if self.is_mock:
+            def op():
+                with self._lock:
+                    rows=[x.copy() for x in self._memory["case_messages"] if x.get("case_id")==case_id and x.get("user_id")==user["id"]]
+                return sorted(rows,key=lambda x:x["created_at"])
+            return await self._run(op)
+        def op():
+            rows=self._client(user["token"]).table("case_messages").select("*").eq("case_id",case_id).eq("user_id",user["id"]).order("created_at").execute()
+            return rows.data
+        return await self._run(op)
+
+    async def update_case_status(self, user: dict, case_id: str, status: str):
+        if self.is_mock:
+            def op():
+                with self._lock:
+                    row=next((x for x in self._memory["cases"] if x["id"]==case_id and x["user_id"]==user["id"]),None)
+                    if row:
+                        row["status"]=status
+                        row["updated_at"]=utcnow()
+                    return row
+            return await self._run(op)
+        def op():
+            res=self._client(user["token"]).table("cases").update({"status":status}).eq("id",case_id).eq("user_id",user["id"]).execute()
+            return res.data[0] if res.data else None
+        return await self._run(op)
+
+    async def get_lawyer(self, user: dict, lawyer_id: str):
+        if self.is_mock:
+            def op():
+                with self._lock:
+                    return next((x.copy() for x in self._memory["lawyer_profiles"] if x["id"]==lawyer_id and x.get("verification_status")=="verified"),None)
+            return await self._run(op)
+        def op():
+            res=self._client(user.get("token")).table("lawyer_profiles").select("*").eq("id",lawyer_id).eq("verification_status","verified").limit(1).execute()
+            return res.data[0] if res.data else None
+        return await self._run(op)
+
+    async def signed_url(self, user: dict, storage_path: str, expires_in: int = 300):
+        if self.is_mock:
+            return None
+        def op():
+            client=self._client(user["token"])
+            result=client.storage.from_("case-files").create_signed_url(storage_path,expires_in)
+            return result.get("signedURL") or result.get("signedUrl")
+        return await self._run(op)
