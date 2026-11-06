@@ -92,7 +92,7 @@ Default:
 - Query prefix: query: 
 - Passage prefix: passage:
 
-No embedding API key is required. The first run downloads model weights. Ensure sufficient disk/RAM. Render Free instances use ephemeral storage, so a cold start may download the model again. Loading PyTorch plus the model may exceed a small free instance's memory; test query-time embedding on the actual deployed instance before relying on it. Run ingestion on a suitably resourced local machine if needed.
+No embedding API key is required. The optional `requirements-embeddings.txt` installs Sentence Transformers/PyTorch. The first run downloads model weights. Ensure sufficient disk/RAM. Render Free instances use ephemeral storage, so a cold start may download the model again. Loading PyTorch plus the model may exceed a small free instance's memory; test query-time embedding on the actual deployed instance before relying on it. Run ingestion on a suitably resourced local machine if needed. The committed Render Free build deliberately installs only `requirements.txt`; on that small instance, semantic embeddings may be unavailable and RAG falls back to Postgres full-text keyword search. To enable E5 on a different host, install `requirements-embeddings.txt` and test memory/cold starts.
 
 Supabase's [pgvector guide](https://supabase.com/docs/guides/database/extensions/pgvector) documents the Postgres vector extension. The initial migration creates vector(384). Changing model or dimensions requires re-embedding every legal chunk and rebuilding the corresponding vector index.
 
