@@ -480,7 +480,8 @@ async def generate_case_assessment(
             jurisdiction=(case.get("jurisdiction",{}).get("country","IN")+":"+
                           case.get("jurisdiction",{}).get("state","")) if case.get("jurisdiction",{}).get("state")
                          else case.get("jurisdiction",{}).get("country","IN"),
-            limit=8
+            limit=8,
+            as_of_date=datetime.now(timezone.utc).date()
         )
         retrieved=[row for row in retrieved if verify_indexed_source(row)]
     except HTTPException as exc:
@@ -683,7 +684,9 @@ def _is_utf8(value: bytes) -> bool:
 async def legal_search(payload: LegalSearchRequest,user: dict=Depends(get_current_user)):
     results=await hybrid_legal_search(
         payload.query,category=payload.category.value if payload.category else None,
-        jurisdiction=payload.jurisdiction.country,limit=payload.limit
+        jurisdiction=payload.jurisdiction.country,
+        limit=payload.limit,
+        as_of_date=payload.as_of_date or datetime.now(timezone.utc).date()
     )
     verified=[r for r in results if verify_indexed_source(r)]
     max_score=max((r["score"] for r in verified),default=1)
