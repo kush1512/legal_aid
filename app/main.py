@@ -26,7 +26,8 @@ from app.schemas import (
     LawyerOut, ErrorResponse
 )
 from app.security import get_current_user
-from app.storage import Storage, utcnow\nfrom app.speech import GroqWhisperProvider
+from app.storage import Storage, utcnow
+from app.speech import GroqWhisperProvider
 
 settings = get_settings()
 logging.basicConfig(level=settings.log_level.upper(), format="%(asctime)s %(levelname)s %(name)s %(message)s")
