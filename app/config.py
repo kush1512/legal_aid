@@ -47,6 +47,10 @@ class Settings(BaseSettings):
     max_request_chars: int = 12000
 
     @property
+    def synthetic_demo_user_id_list(self) -> set[str]:
+        return {item.strip() for item in self.synthetic_demo_user_ids.split(",") if item.strip()}
+
+    @property
     def cors_origin_list(self) -> list[str]:
         return [item.strip() for item in self.cors_origins.split(",") if item.strip()]
 
