@@ -468,6 +468,8 @@ async def generate_case_assessment(
                                  "message":"External assessment is disabled for real cases. Use the mock provider or an approved synthetic demo account.",
                                  "details":[]})
     messages=await storage.list_messages(user,str(case_id))
+    user_text=" ".join(m["content"] for m in messages if m["role"]=="user")
+    escalation=official_escalation_for_case(case["category"],user_text)
     conversation="\\n".join(f'{m["role"]}: {m["content"]}' for m in messages[-20:])
     retrieval_query=(case["category"]+" "+str(case.get("jurisdiction"))+" "+
                      " ".join(m["content"] for m in messages if m["role"]=="user"))[:6000]
@@ -501,7 +503,8 @@ async def generate_case_assessment(
         "Only discuss legal provisions included in the VERIFIED SOURCE CONTEXT below. A retrieved match "
         "does not prove legal applicability; explain uncertainty and identify missing facts. If source context "
         "is empty, make no legal conclusion, list no law and say verified source material is unavailable. "
-        "Do not claim to be a lawyer or guarantee an outcome. Return the AssessmentContent JSON schema.\\n"
+        "Do not claim to be a lawyer or guarantee an outcome. Return the AssessmentContent JSON schema.
+        "For immediate danger in India, identify official emergency number 112; for online financial fraud, identify 1930 and cybercrime.gov.in.\\n"
         f"Category: {case['category']}\\nJurisdiction: {case.get('jurisdiction')}\\n"
         f"Conversation:\\n{conversation[-30000:]}\\n"
         f"VERIFIED SOURCE CONTEXT:\\n{source_context}"
@@ -575,8 +578,9 @@ async def generate_case_assessment(
         "follow_up_questions":generated.follow_up_questions,
         "overall_uncertainty":generated.overall_uncertainty if has_sources else "high",
         "confidence":min(generated.confidence,0.5) if has_sources else 0.0,
-        "escalation_required":generated.escalation_required,
-        "escalation_reason":generated.escalation_reason,
+        "escalation_required":bool(escalation) or generated.escalation_required,
+        "escalation_reason":generated.escalation_reason or ("Urgent escalation detected from user-provided facts." if escalation else None),
+        "escalation_details":escalation,
         "disclaimer":"AI-generated preliminary information, not legal advice or representation. All drafts and legal interpretations require review by a qualified professional."
     }
     row=await storage.insert("case_assessments",user,{
