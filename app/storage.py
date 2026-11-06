@@ -215,3 +215,30 @@ class Storage:
             result=client.storage.from_("case-files").create_signed_url(storage_path,expires_in)
             return result.get("signedURL") or result.get("signedUrl")
         return await self._run(op)
+
+    async def upload_case_document(self, user: dict, case_id: str, file_name: str,
+                                   mime_type: str, content: bytes, sha256: str):
+        if self.is_mock:
+            raise HTTPException(503,"Private document storage requires Supabase; mock storage does not accept file uploads")
+        import re
+        object_name=re.sub(r"[^A-Za-z0-9._-]","_",file_name)[:120] or "document"
+        object_path=f'{user["id"]}/{case_id}/{uuid4()}/{object_name}'
+        def op():
+            client=self._client(user["token"])
+            bucket=client.storage.from_("case-files")
+            bucket.upload(object_path,content,{"content-type":mime_type,"upsert":"false"})
+            try:
+                row=client.table("case_documents").insert({
+                    "case_id":case_id,"user_id":user["id"],
+                    "storage_bucket":"case-files","storage_path":object_path,
+                    "file_name":object_name,"mime_type":mime_type,
+                    "size_bytes":len(content),"sha256":sha256
+                }).execute().data[0]
+                return row
+            except Exception:
+                try:
+                    bucket.remove([object_path])
+                except Exception:
+                    pass
+                raise
+        return await self._run(op)
