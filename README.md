@@ -10,7 +10,7 @@ This repository currently contains:
 - Supabase JWT authentication and a development-only auth bypass.
 - Gemini, Groq, OpenAI, Anthropic and explicit mock LLM adapters behind one provider contract.
 - Privacy-gated LLM calls, transient-only fallback, timeouts, bounded retries and usage metadata logging.
-- Local `intfloat/multilingual-e5-small` query/passage embeddings.
+- Local `intfloat/multilingual-e5-small` query/passage embeddings when optional ML dependencies are installed; otherwise verified-source keyword retrieval remains available.
 - Hybrid semantic + keyword legal retrieval and an official-source PDF/HTML ingestion CLI.
 - Case intake, assessment snapshot, preliminary draft, community, lawyer, legal search and speech transcription routes.\n- Deterministic urgent escalation signposting for India (112 immediate safety, 1930 online financial fraud).
 - A development-only in-memory storage mode for synthetic tests.
@@ -24,6 +24,8 @@ python -m venv .venv
 # Windows: .venv\\Scripts\\activate
 source .venv/bin/activate
 pip install -r requirements.txt
+# Optional: install local E5/PyTorch for multilingual semantic retrieval and ingestion
+pip install -r requirements-embeddings.txt
 cp .env.example .env
 uvicorn app.main:app --reload
 ```
