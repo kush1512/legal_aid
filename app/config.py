@@ -42,6 +42,7 @@ class Settings(BaseSettings):
     # External LLM processing is off unless explicitly enabled for an allowlisted demo user.
     allow_external_llm_for_synthetic: bool = False
     synthetic_demo_user_ids: str = ""
+    admin_user_ids: str = ""
     # Kept as a separate, stricter opt-in for any future sensitive-data processor.
     allow_external_llm_for_sensitive: bool = False
 
@@ -65,6 +66,10 @@ class Settings(BaseSettings):
             for item in self.synthetic_demo_user_ids.split(",")
             if item.strip()
         }
+
+    @property
+    def admin_user_id_list(self) -> set[str]:
+        return {item.strip() for item in self.admin_user_ids.split(",") if item.strip()}
 
     @property
     def cors_origin_list(self) -> list[str]:
