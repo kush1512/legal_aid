@@ -14,5 +14,5 @@ jobs:
           python-version: "3.11"
           cache: pip
       - run: pip install -r requirements-test.txt
-      - run: python -m compileall -q app tests
+      - run: python -m compileall -q app scripts tests
       - run: python -m pytest -q
