@@ -44,6 +44,7 @@ FastAPI /api/v1
 | `app/embeddings.py` | Configurable embedding adapter and E5 prefixes |
 | `app/legal_rag.py` | Hybrid retrieval, cache and source verification |
 | `app/speech.py` | Speech provider interface and Groq Whisper adapter |
+| Admin/moderation routes | Admin UUID allowlist, report queue, community post review and lawyer verification |
 | `scripts/ingest_legal.py` | Official-source download, extraction, chunking and embedding |
 | `supabase/migrations/` | Database schema, indexes, functions and RLS |
 
@@ -86,5 +87,5 @@ FastAPI /api/v1
 - Render Free can spin down and has ephemeral local storage; Supabase is the persistence layer.
 - Sentence Transformer model loading on a small free web instance may be memory-intensive; test cold starts under the actual Render memory limit.
 - The dev storage adapter is not durable and must not be used for production.
-- There is no browser-facing document upload endpoint yet; private document listing and signed URL support are wired.
+- Private case-document upload/listing uses Supabase Storage; original file bytes are not stored on the Render filesystem.
 - Legal ingestion is a manual CLI, not an unattended crawler.
