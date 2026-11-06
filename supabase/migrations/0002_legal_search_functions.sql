@@ -25,6 +25,7 @@ as $$
     and d.verification_status in ('verified','historical')
     and (d.effective_from is null or d.effective_from <= as_of_date)
     and (d.effective_to is null or d.effective_to >= as_of_date)
+    and (d.verification_status <> 'historical' or d.effective_to is not null)
     and (filter_category is null or d.category::text=filter_category)
   order by c.embedding <=> query_embedding
   limit greatest(1, least(match_count, 50));
@@ -55,6 +56,7 @@ as $$
     and d.verification_status in ('verified','historical')
     and (d.effective_from is null or d.effective_from <= as_of_date)
     and (d.effective_to is null or d.effective_to >= as_of_date)
+    and (d.verification_status <> 'historical' or d.effective_to is not null)
     and (filter_category is null or d.category::text=filter_category)
   order by ts_rank_cd(c.keyword_text, websearch_to_tsquery('simple', search_text)) desc
   limit greatest(1, least(match_count, 50));
