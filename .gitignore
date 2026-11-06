@@ -19,3 +19,7 @@ hf_cache/
 data/
 uploads/
 *.log
+
+# Local legal source files: keep the directory marker, not downloaded documents.
+database/*
+!database/README.md
