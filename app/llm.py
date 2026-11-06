@@ -276,7 +276,13 @@ class LLMOrchestrator:
                 result = await asyncio.wait_for(
                     operation(provider, model), timeout=self.settings.llm_timeout_seconds
                 )
-                logger.info("llm_response provider=%s model=%s mock=%s", provider_name, model, result[0].is_mock if isinstance(result, tuple) else result.is_mock)
+                generation=result[0] if isinstance(result,tuple) else result
+                usage=generation.usage or {}
+                logger.info(
+                    "llm_response provider=%s model=%s mock=%s input_tokens=%s output_tokens=%s",
+                    provider_name,model,generation.is_mock,
+                    usage.get("input_tokens"),usage.get("output_tokens")
+                )
                 return result
             except asyncio.TimeoutError as exc:
                 last_error = ProviderError("LLM provider timed out", transient=True)
