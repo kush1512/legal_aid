@@ -7,7 +7,7 @@ FastAPI backend for the Legal Aid platform. The application is a modular monolit
 This repository currently contains:
 - A frontend-facing REST contract and Pydantic request/response schemas.
 - Supabase migrations for case, community, lawyer, draft and legal knowledge-base tables, pgvector and RLS.
-- Supabase JWT authentication and a development-only auth bypass.
+- Supabase JWT authentication and a development-only auth bypass. Storage operations are backend-mediated with case ownership and object-path checks; database queries remain scoped to user JWT/RLS.
 - Gemini, Groq, OpenAI, Anthropic and explicit mock LLM adapters behind one provider contract.
 - Privacy-gated LLM calls, transient-only fallback, timeouts, bounded retries and usage metadata logging.
 - Local `intfloat/multilingual-e5-small` query/passage embeddings when optional ML dependencies are installed; otherwise verified-source keyword retrieval remains available.
