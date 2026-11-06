@@ -242,6 +242,36 @@ async def add_case_message(case_id: UUID,payload: MessageCreateRequest,user: dic
         })
     new_status=result.case_status.value if result else "needs_information"
     await storage.update_case_status(user,str(case_id),new_status)
+    # Produce a conservative intake-stage assessment. This is deliberately not a legal opinion:
+    # potentially relevant laws remain empty until source-verified RAG is integrated into assessment.
+    assessment_payload={
+        "summary": "Initial intake summary based only on the conversation. " + (reply[:700] if reply else ""),
+        "parties": [],
+        "timeline": [],
+        "evidence": [],
+        "established_facts": [
+            f'{fact["key"]}: {fact["value"]}' for fact in facts
+            if fact.get("source") in ("user_provided","document")
+        ],
+        "assumptions": [],
+        "unknowns": result.unknowns if result else ["Additional facts are required."],
+        "legal_position": "No legal conclusion is made at this intake stage. Current applicable provisions must be retrieved and verified before legal analysis.",
+        "potentially_relevant_laws": [],
+        "options": [],
+        "follow_up_questions": followups,
+        "overall_uncertainty": "high",
+        "confidence": 0.0,
+        "escalation_required": bool(result.emergency_detected) if result else False,
+        "escalation_reason": result.emergency_reason if result else None,
+        "disclaimer": "Preliminary AI-assisted information only. This is not legal advice or legal representation. Obtain qualified professional review."
+    }
+    await storage.insert("case_assessments",user,{
+        "case_id":str(case_id),"user_id":user["id"],
+        "summary":assessment_payload["summary"],"assessment":assessment_payload,
+        "model_provider":ai["provider"],"model_name":ai["model"],
+        "model_version":ai.get("version"),"is_mock":ai["is_mock"],
+        "retrieved_source_ids":[]
+    })
     return {"user_message":to_message_out(user_message),
             "assistant_message":to_message_out(assistant),"case_status":new_status,
             "follow_up_questions":followups,"extracted_facts":facts,"ai":ai}
