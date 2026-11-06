@@ -33,6 +33,8 @@ async def hybrid_legal_search(
 ) -> list[dict[str, Any]]:
     """Hybrid semantic/keyword retrieval scoped to a legal validity date."""
     settings = get_settings()
+    if not (settings.supabase_url and settings.supabase_service_role_key):
+        raise HTTPException(503, "Legal knowledge base is not configured")
     effective_date = as_of_date or date.today()
     cache_key = hashlib.sha256(
         f"{query.strip().casefold()}|{category or ''}|{jurisdiction}|{limit}|{effective_date.isoformat()}".encode("utf-8")
