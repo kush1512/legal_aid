@@ -253,7 +253,7 @@ def valid_audio_signature(extension: str, data: bytes) -> bool:
     if extension == ".m4a":
         return b"ftyp" in data[:16]
     if extension == ".webm":
-        return data.startswith(b"\\x1a\\x45\\xdf\\xa3")
+        return data.startswith(bytes.fromhex("1a45dfa3"))
     if extension == ".ogg":
         return data.startswith(b"OggS")
     if extension == ".flac":
@@ -693,12 +693,12 @@ async def upload_case_document(
     extension=os.path.splitext(file.filename or "")[1].lower()
     allowed={
         ".pdf":("application/pdf",lambda b:b.startswith(b"%PDF-")),
-        ".png":("image/png",lambda b:b.startswith(b"\\x89PNG\\r\\n\\x1a\\n")),
-        ".jpg":("image/jpeg",lambda b:b.startswith(b"\\xff\\xd8\\xff")),
-        ".jpeg":("image/jpeg",lambda b:b.startswith(b"\\xff\\xd8\\xff")),
-        ".txt":("text/plain",lambda b: b"\\x00" not in b and _is_utf8(b)),
-        ".docx":("application/vnd.openxmlformats-officedocument.wordprocessingml.document",lambda b:b.startswith(b"PK\\x03\\x04")),
-        ".doc":("application/msword",lambda b:b.startswith(b"\\xd0\\xcf\\x11\\xe0\\xa1\\xb1\\x1a\\xe1"))
+        ".png":("image/png",lambda b:b.startswith(bytes.fromhex("89504e470d0a1a0a"))),
+        ".jpg":("image/jpeg",lambda b:b.startswith(bytes.fromhex("ffd8ff"))),
+        ".jpeg":("image/jpeg",lambda b:b.startswith(bytes.fromhex("ffd8ff"))),
+        ".txt":("text/plain",lambda b: bytes([0]) not in b and _is_utf8(b)),
+        ".docx":("application/vnd.openxmlformats-officedocument.wordprocessingml.document",_is_docx),
+        ".doc":("application/msword",lambda b:b.startswith(bytes.fromhex("d0cf11e0a1b11ae1")))
     }
     if extension not in allowed:
         raise HTTPException(415,"Unsupported document format")
@@ -722,6 +722,17 @@ async def upload_case_document(
         "mime_type":row["mime_type"],"size_bytes":row["size_bytes"],
         "created_at":row["created_at"]
     }}
+
+def _is_docx(value: bytes) -> bool:
+    """Validate the ZIP container and required OOXML members, not only the PK header."""
+    import io
+    import zipfile
+    try:
+        with zipfile.ZipFile(io.BytesIO(value)) as archive:
+            names=set(archive.namelist())
+            return "[Content_Types].xml" in names and "word/document.xml" in names
+    except (zipfile.BadZipFile, OSError, ValueError):
+        return False
 
 def _is_utf8(value: bytes) -> bool:
     try:
