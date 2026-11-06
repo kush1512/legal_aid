@@ -28,8 +28,7 @@ class CaseCreateRequest(BaseModel):
     description: str = Field(min_length=5, max_length=12000)
     jurisdiction: Jurisdiction = Field(default_factory=Jurisdiction)
     preferred_language: str = Field(default="en", max_length=20)
-    sensitive: bool = True
-    external_ai_consent: bool = False
+    synthetic_demo: bool = False
 
 class MessageCreateRequest(BaseModel):
     content: str = Field(min_length=1, max_length=12000)
@@ -141,6 +140,7 @@ class DocumentGenerateRequest(BaseModel):
     instructions: str = Field(default="", max_length=4000)
     language: str = "en"
     facts: dict[str, Any] | None = None
+    synthetic_demo: bool = False
     external_ai_consent: bool = False
 
 class DraftOut(BaseModel):
