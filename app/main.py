@@ -684,7 +684,7 @@ def _is_utf8(value: bytes) -> bool:
 async def legal_search(payload: LegalSearchRequest,user: dict=Depends(get_current_user)):
     results=await hybrid_legal_search(
         payload.query,category=payload.category.value if payload.category else None,
-        jurisdiction=payload.jurisdiction.country,
+        jurisdiction=(payload.jurisdiction.country + ":" + payload.jurisdiction.state) if payload.jurisdiction.state else payload.jurisdiction.country,
         limit=payload.limit,
         as_of_date=payload.as_of_date or datetime.now(timezone.utc).date()
     )
