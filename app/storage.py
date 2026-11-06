@@ -42,7 +42,7 @@ class Storage:
 
     SERVER_WRITE_TABLES = {
         "case_messages", "case_facts", "case_assessments",
-        "legal_citations", "generated_drafts", "community_posts", "lawyer_profiles", "lawyer_verifications", "reports"
+        "legal_citations", "generated_drafts", "community_posts", "community_comments", "lawyer_profiles", "lawyer_verifications", "reports"
     }
 
     async def _run(self, fn, *args):
