@@ -10,7 +10,6 @@ google-genai>=1.0,<2
 groq>=0.11,<1
 openai>=1.50,<3
 anthropic>=0.34,<1
-sentence-transformers>=3.0,<6
 numpy>=1.26
 PyMuPDF>=1.24,<2
 tenacity>=9,<10
