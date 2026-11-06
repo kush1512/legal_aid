@@ -129,7 +129,7 @@ def to_case_out(row: dict) -> dict:
         "id":row["id"],"title":row["title"],"category":row["category"],
         "status":row["status"],"jurisdiction":row.get("jurisdiction") or {"country":"IN"},
         "preferred_language":row.get("preferred_language","en"),
-        "sensitive":row.get("sensitive",True),"created_at":row["created_at"],
+        "sensitive":row.get("sensitive",True),"synthetic_demo":row.get("synthetic_demo",False),\n        "created_at":row["created_at"],
         "updated_at":row.get("updated_at",row["created_at"]),
         "latest_message_at":row.get("latest_message_at")
     }
