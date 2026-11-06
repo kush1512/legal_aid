@@ -4,7 +4,7 @@ def test_case_intake_and_assessment_flow(client,auth_headers):
         "description":"A synthetic demo seller accepted payment but has not delivered possession.",
         "jurisdiction":{"country":"IN","state":"Assam"},
         "preferred_language":"en",
-        "sensitive":false
+        "sensitive":False
     })
     assert created.status_code==201,created.text
     case=created.json()["case"]
