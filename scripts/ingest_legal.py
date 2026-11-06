@@ -241,7 +241,7 @@ def read_local_source(relative_path: str) -> tuple[bytes, str, str]:
     return candidate.read_bytes(), mime_by_suffix[suffix], candidate.as_posix()
 
 
-def load_local_source(args) -> tuple[bytes, str, str]:
+def load_local_source(args) -> tuple[bytes, str, str, str]:
     if not args.source_url or not is_official_https_url(args.source_url):
         raise ValueError(
             "Local ingestion requires --source-url with an allowed official HTTPS URL"
