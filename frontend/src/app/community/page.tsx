@@ -125,8 +125,9 @@ function PostCard({ post, local, update, onMessage, defaultAnon }: { post: Commu
             <div className="flex flex-wrap items-center gap-2 text-xs text-navy/70">
               <Badge tone="mist">{categoryShort(post.category)}</Badge>
               <span className="inline-flex items-center gap-1 font-medium">{post.anonymous && <EyeOff className="h-3 w-3" aria-hidden />}{post.display_name}</span><span>· {timeAgo(post.created_at)}</span>
-              {pending && <Badge tone="amber">Pending review</Badge>}\n              {post.id.startsWith("p0000000-") && <Badge tone="amber">Demo conversation</Badge>}
-              {isMock && DEMO_COMMENTS[post.id]?.some((c) => c.lawyer) && <Badge tone="teal" icon={BadgeCheck}>Lawyer reply</Badge>}
+              {pending && <Badge tone="amber">Pending review</Badge>}
+              {post.id.startsWith("p0000000-") && <Badge tone="amber">Demo conversation</Badge>}
+              {DEMO_COMMENTS[post.id]?.some((c) => c.lawyer) && <Badge tone="teal" icon={BadgeCheck}>Lawyer reply</Badge>}
             </div>
             <h3 id={`t-${post.id}`} className="mt-1.5 font-display text-lg font-semibold leading-snug">{post.title}</h3>
             <p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed">{post.content}</p>
