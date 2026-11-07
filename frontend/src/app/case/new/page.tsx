@@ -122,10 +122,10 @@ function Intake() {
       <section aria-labelledby="s4" className="space-y-4">
         <h2 id="s4" className="flex items-center gap-2 text-base font-semibold"><Lock className="h-4 w-4 text-teal-700" aria-hidden />4. Privacy and consent</h2>
         <Switch id="sensitive" checked={sensitive} onChange={setSensitive} label="Treat this case as sensitive"
-          description="Recommended. Sensitive cases are never sent to an external AI service unless you explicitly allow it below." />
+          description="Turn this on for personal, confidential, or otherwise sensitive details. Sensitive cases are blocked from external AI even if consent is selected." />
         <Switch id="synthetic-demo" checked={syntheticDemo} onChange={setSyntheticDemo} label="This is a fictional demonstration case" description="Only select this for made-up test facts. When enabled, an allowlisted development account may send this case to Groq after you grant consent. Never use real names, addresses, account numbers or actual disputes." />
         <ConsentCheckbox id="consent" checked={consent} onChange={setConsent}>
-          <strong>Allow an external AI service to process this case.</strong> If ticked, your description and later messages may be sent to an AI provider to prepare follow-up questions and an assessment. Groq access is limited to explicitly fictional demo cases on an allowlisted development account. Leave it unticked to keep everything off external services; the assistant will then offer limited help. You can change this per message.
+          <strong>Allow an external AI service to process this case.</strong> If ticked, your description and later messages may be sent to an AI provider to prepare follow-up questions and an assessment. External AI is available only for cases the backend classifies as non-sensitive. Sensitive categories and detected personal identifiers are always blocked. Leave it unticked to keep everything off external services; the assistant will then offer limited help. You can change this per message.
         </ConsentCheckbox>
         <p className="text-xs text-navy/70">Your name and contact details are not part of this form and are never shown publicly. Cases are visible only to your account.</p>
       </section>
