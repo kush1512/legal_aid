@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
 import { api, type CaseCategory, type Lawyer, type LegalSearchItem } from "@/lib/api";
 import { categoryLabel } from "@/lib/constants";
 import { SEED_LAWYERS } from "@/lib/mock/data";
