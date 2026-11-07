@@ -147,6 +147,18 @@ export const mockApi: LegalAidApi = {
     if (!a) throw new ApiError(404, "ASSESSMENT_NOT_FOUND", "No completed assessment is available yet.");
     return { assessment: a };
   },
+  async generateAssessment(id) {
+    await wait(500);
+    const s = state();
+    const c = s.cases.find((item) => item.id === id);
+    if (!c) throw notFound("Case");
+    const assessment = buildAssessment(c, s.messages[id] ?? [], null);
+    s.assessments[id] = assessment;
+    c.status = "analysed";
+    c.updated_at = assessment.generated_at;
+    persist();
+    return { assessment };
+  },
   async listCaseDocuments(id) {
     await wait(200);
     return page(state().documents[id] ?? []);
