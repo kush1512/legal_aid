@@ -5,7 +5,6 @@ import { useState } from "react";
 import { ArrowLeft, BadgeCheck, CalendarClock, Languages, MapPin, MessageSquareLock, ShieldCheck, Users } from "lucide-react";
 import { api } from "@/lib/api";
 import { categoryLabel, languageLabel } from "@/lib/constants";
-import { isMock } from "@/lib/config";
 import { useAsync } from "@/lib/hooks/useAsync";
 import { LAWYER_EXTRAS } from "@/lib/mock/demo-extras";
 import { SEED_LAWYERS } from "@/lib/mock/data";
