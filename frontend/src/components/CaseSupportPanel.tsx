@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { api, type CaseCategory, type Lawyer, type LegalCitation, type LegalSearchItem } from "@/lib/api";
+import { api, type CaseCategory, type Lawyer, type LegalSearchItem } from "@/lib/api";
 import { categoryLabel } from "@/lib/constants";
 import { Badge, Button, LoadingBlock } from "@/components/ui";
 
