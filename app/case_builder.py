@@ -11,10 +11,10 @@ from datetime import datetime
 from typing import Any
 
 DATE_PATTERNS = (
-    re.compile(r"\\b(\\d{1,2}[/-]\\d{1,2}[/-]\\d{2,4})\\b"),
-    re.compile(r"\\b(\\d{4}-\\d{2}-\\d{2})\\b"),
+    re.compile(r"\b(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})\b"),
+    re.compile(r"\b(\d{4}-\d{2}-\d{2})\b"),
 )
-AMOUNT_RE = re.compile(r"(?i)(?:₹|rs\\.?\\s*)([\\d,]+(?:\\.\\d{1,2})?)")
+AMOUNT_RE = re.compile(r"(?i)(?:₹|rs\.?\s*)([\d,]+(?:\.\d{1,2})?)")
 EVIDENCE_TERMS = {
     "property_real_estate": ["rent agreement", "lease", "receipt", "bank statement", "payment proof", "email", "message", "whatsapp", "notice", "photograph"],
     "digital_fraud_cybercrime": ["bank statement", "upi reference", "transaction id", "sms", "email", "screenshot", "call log", "complaint number"],
