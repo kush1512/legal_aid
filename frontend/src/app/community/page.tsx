@@ -154,7 +154,7 @@ function ReportButton({ id, local, update }: { id: string; local: CommunityLocal
 function Thread({ postId, comments, local, update, onMessage, defaultAnon }: { postId: string; comments: DemoComment[]; local: CommunityLocal; update: (f: (c: CommunityLocal) => CommunityLocal) => void; onMessage: (k: string, t: string) => void; defaultAnon: boolean }) {
   return (
     <div className="mt-4 space-y-3 border-t border-navy/10 pt-4">
-      <PrivacyHint>Comments, votes, reports, blocks and messages are saved on this device only for now. The API doesn’t support them yet.</PrivacyHint>
+      <PrivacyHint>In this prototype, comments, votes, reports, blocks and private messages are saved on this device only. They are not synced across accounts or devices.</PrivacyHint>
       {comments.length === 0 && <p className="text-sm text-navy/70">No comments yet.</p>}
       <ul className="space-y-3">{comments.map((c) => <CommentNode key={c.id} c={c} depth={0} parent={postId} local={local} update={update} onMessage={onMessage} defaultAnon={defaultAnon} />)}</ul>
       <CommentForm parent={postId} update={update} defaultAnon={defaultAnon} label="Add a comment" />
