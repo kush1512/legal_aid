@@ -380,7 +380,7 @@ async def add_case_message(case_id: UUID,payload: MessageCreateRequest,user: dic
         "You are a conversational legal-intake assistant for Legal Aid, an Indian legal information platform. "
         "This is an ongoing multi-turn conversation, not a one-shot form. Read the entire conversation in order "
         "and respond specifically to the latest user message while remembering all earlier answers. "
-        "Start with a brief, natural acknowledgement of the latest information. Then ask ONE clear, specific "
+        "Start with a brief, natural acknowledgement of the latest information. Then ask one clear, specific "
         "next question that obtains the most important missing fact. Do not repeat a question already answered "
         "or ask for a generic bundle of dates, documents and steps. Ask about only one topic at a time. "
         "If the latest message already answers the previous question, acknowledge that answer and move to the "

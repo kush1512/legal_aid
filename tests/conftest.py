@@ -6,6 +6,8 @@ os.environ.setdefault("LLM_PROVIDER","mock")
 os.environ.setdefault("LLM_MODEL","mock-legal-aid-v1")
 os.environ.setdefault("ALLOW_EXTERNAL_LLM_FOR_SENSITIVE","false")
 
+os.environ["SYNTHETIC_DEMO_USER_IDS"] = "test-user-not-allowlisted"
+
 import pytest
 from fastapi.testclient import TestClient
 from app.main import app, storage
