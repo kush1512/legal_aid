@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { api, type CaseCategory, type Lawyer, type LegalSearchItem } from "@/lib/api";
 import { categoryLabel } from "@/lib/constants";
+import { SEED_LAWYERS } from "@/lib/mock/data";
 import { Badge, Button, LoadingBlock } from "@/components/ui";
 
 type CaseInfo = {
@@ -74,7 +75,8 @@ export function CaseSupportPanel({ caseInfo }: { caseInfo: CaseInfo }) {
           const locality = (l: Lawyer) => Number(Boolean(city && l.city?.toLowerCase().includes(city.toLowerCase()))) * 2 + Number(Boolean(state && l.state?.toLowerCase() === state.toLowerCase()));
           return locality(b) - locality(a);
         });
-        setLawyers(ranked.slice(0, 3));
+        const demoMatches = SEED_LAWYERS.filter((lawyer) => lawyer.practice_areas.includes(caseInfo.category));
+        setLawyers((ranked.length ? ranked : demoMatches).slice(0, 3));
       })
       .catch(() => { if (active) setLawyers([]); })
       .finally(() => { if (active) setLawyerLoading(false); });
@@ -112,7 +114,7 @@ export function CaseSupportPanel({ caseInfo }: { caseInfo: CaseInfo }) {
               <li key={lawyer.id} className="rounded-lg border border-navy/10 p-3">
                 <div className="flex flex-wrap items-center gap-2">
                   <strong>{lawyer.display_name}</strong>
-                  <Badge tone="teal">Verified profile</Badge>
+                  {lawyer.display_name.includes("(demo)") ? <Badge tone="amber">Demo profile · not a real lawyer</Badge> : <Badge tone="teal">Verified profile</Badge>}
                 </div>
                 <p className="mt-1 text-xs text-navy/70">{categoryLabel(caseInfo.category)} · {[lawyer.city, lawyer.state].filter(Boolean).join(", ") || "Location not listed"}</p>
                 {lawyer.bio && <p className="mt-2 text-sm">{lawyer.bio}</p>}
@@ -120,7 +122,7 @@ export function CaseSupportPanel({ caseInfo }: { caseInfo: CaseInfo }) {
               </li>
             ))}
           </ol>
-        ) : <p className="mt-3 text-sm text-navy/70">No verified lawyer profiles matching this category are currently available. Browse the lawyer directory for other listings.</p>}
+        ) : <p className="mt-3 text-sm text-navy/70">No matching lawyer profiles are currently available. Browse the lawyer directory for other listings.</p>}
         <Button href="/lawyers" variant="secondary" className="mt-4">View lawyer directory</Button>
         <p className="mt-2 text-xs text-navy/60">Recommendations are based on listed practice areas and location. Profile verification should be independently confirmed before engagement.</p>
       </div>
