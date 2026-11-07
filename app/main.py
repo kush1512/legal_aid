@@ -155,10 +155,28 @@ def is_allowlisted_synthetic_user(user: dict) -> bool:
 
 def can_use_external_synthetic_ai(user: dict, synthetic_demo: bool, consent: bool) -> bool:
     return bool(
-        synthetic_demo
-        and consent
-        and settings.allow_external_llm_for_synthetic
+        synthetic_demo and consent and settings.allow_external_llm_for_synthetic
         and is_allowlisted_synthetic_user(user)
+    )
+
+
+def contains_sensitive_identifiers(text: str) -> bool:
+    patterns = (
+        r"\b[6-9]\d{9}\b",
+        r"\b\d{4}\s?\d{4}\s?\d{4}\b",
+        r"\b[A-Z]{5}\d{4}[A-Z]\b",
+        r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b",
+        r"\b\d{9,18}\b",
+        r"\b[A-Z0-9._-]+@[A-Z]{2,}\b",
+    )
+    return any(re.search(pattern, text, re.IGNORECASE) for pattern in patterns)
+
+
+def case_requires_protection(category: str, text: str, user_marked_sensitive: bool) -> bool:
+    return bool(
+        user_marked_sensitive
+        or category in {"marriage_family", "personal_safety_privacy"}
+        or contains_sensitive_identifiers(text)
     )
 
 def official_escalation_for_case(category: str, text: str) -> dict[str, Any] | None:
@@ -336,7 +354,7 @@ async def create_case(payload: CaseCreateRequest, user: dict=Depends(get_current
         "user_id":user["id"],"title":title,"category":payload.category.value,
         "status":"intake","jurisdiction":payload.jurisdiction.model_dump(exclude_none=True),
         "preferred_language":payload.preferred_language,
-        "synthetic_demo":synthetic_demo,"sensitive":not synthetic_demo,
+        "synthetic_demo":synthetic_demo,"sensitive":case_requires_protection(payload.category.value,payload.description,payload.sensitive) or synthetic_demo,
         "private_conversation":False
     })
     message=await storage.insert("case_messages",user,{
@@ -415,7 +433,7 @@ async def add_case_message(case_id: UUID,payload: MessageCreateRequest,user: dic
     external_demo_allowed=can_use_external_synthetic_ai(
         user,bool(case.get("synthetic_demo",False)),payload.external_ai_consent
     )
-    blocked=bool(case.get("private_conversation",False)) or (settings.llm_provider!="mock" and not external_demo_allowed)
+    blocked=bool(case.get("private_conversation",False)) or bool(case.get("sensitive",True)) or not payload.external_ai_consent or not settings.allow_external_llm_for_non_sensitive
     if blocked:
         reply=(
             "This case is marked sensitive. No external AI provider was contacted. "
@@ -531,7 +549,7 @@ async def generate_case_assessment(
     external_demo_allowed=can_use_external_synthetic_ai(
         user,bool(case.get("synthetic_demo",False)),payload.external_ai_consent
     )
-    if case.get("private_conversation",False) or (settings.llm_provider!="mock" and not external_demo_allowed):
+    if case.get("private_conversation",False) or case.get("sensitive",True) or not payload.external_ai_consent or not settings.allow_external_llm_for_non_sensitive:
         raise HTTPException(403,{"code":"PRIVACY_GATE_BLOCKED",
                                  "message":"External assessment is disabled for real cases. Use the mock provider or an approved synthetic demo account.",
                                  "details":[]})
@@ -855,7 +873,7 @@ async def generate_document(payload: DocumentGenerateRequest,user: dict=Depends(
 
     external_demo_allowed=can_use_external_synthetic_ai(user,synthetic_demo,payload.external_ai_consent)
     private_conversation=bool(case and case.get("private_conversation",False))
-    if private_conversation or (settings.llm_provider!="mock" and not external_demo_allowed):
+    if private_conversation or sensitive or not payload.external_ai_consent or not settings.allow_external_llm_for_non_sensitive:
         raise HTTPException(403,{"code":"PRIVACY_GATE_BLOCKED",
                                  "message":"External drafting is blocked by this case's privacy settings or demo eligibility.",
                                  "details":[]})
