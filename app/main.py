@@ -358,7 +358,7 @@ async def create_case(payload: CaseCreateRequest, user: dict=Depends(get_current
         "user_id":user["id"],"title":title,"category":payload.category.value,
         "status":"intake","jurisdiction":payload.jurisdiction.model_dump(exclude_none=True),
         "preferred_language":payload.preferred_language,
-        "synthetic_demo":synthetic_demo,"sensitive":case_requires_protection(payload.category.value,payload.description,payload.sensitive) or synthetic_demo,
+        "synthetic_demo":synthetic_demo,"sensitive":case_requires_protection(payload.category.value,payload.description,payload.sensitive),
         "private_conversation":False
     })
     message=await storage.insert("case_messages",user,{
