@@ -21,7 +21,7 @@ from app.embeddings import get_embedding_provider
 from app.legal_rag import hybrid_legal_search, verify_indexed_source, get_provision
 from app.llm import LLMOrchestrator, ProviderError
 from app.schemas import (
-    CaseCreateRequest, CaseCreateResponse, CaseListResponse, CaseOut, CaseStatus, AssessmentGenerateRequest,
+    CaseCreateRequest, CaseCreateResponse, CaseListResponse, CaseOut, CaseStatus, AssessmentGenerateRequest, PrivateConversationUpdateRequest,
     CommunityCommentCreateRequest, PostVoteRequest,
     MessageCreateRequest, MessageCreateResponse, MessageOut,
     LegalSearchRequest, LegalSearchResponse, LegalSearchItem, CitationOut,
@@ -144,6 +144,7 @@ def to_case_out(row: dict) -> dict:
         "status":row["status"],"jurisdiction":row.get("jurisdiction") or {"country":"IN"},
         "preferred_language":row.get("preferred_language","en"),
         "sensitive":row.get("sensitive",True),"synthetic_demo":row.get("synthetic_demo",False),
+        "private_conversation":row.get("private_conversation",False),
         "created_at":row["created_at"],
         "updated_at":row.get("updated_at",row["created_at"]),
         "latest_message_at":row.get("latest_message_at")
@@ -335,7 +336,8 @@ async def create_case(payload: CaseCreateRequest, user: dict=Depends(get_current
         "user_id":user["id"],"title":title,"category":payload.category.value,
         "status":"intake","jurisdiction":payload.jurisdiction.model_dump(exclude_none=True),
         "preferred_language":payload.preferred_language,
-        "synthetic_demo":synthetic_demo,"sensitive":not synthetic_demo
+        "synthetic_demo":synthetic_demo,"sensitive":not synthetic_demo,
+        "private_conversation":False
     })
     message=await storage.insert("case_messages",user,{
         "case_id":row["id"],"user_id":user["id"],"role":"user",
@@ -354,6 +356,14 @@ async def list_cases(limit: int=Query(20,ge=1,le=100),offset: int=Query(0,ge=0),
 async def get_case(case_id: UUID,user: dict=Depends(get_current_user)):
     row=await storage.get_case(user,str(case_id))
     return {"case":to_case_out(row)}
+
+@app.patch("/api/v1/cases/{case_id}/privacy",tags=["cases"])
+async def update_case_privacy(case_id: UUID, payload: PrivateConversationUpdateRequest,
+                              user: dict=Depends(get_current_user)):
+    await storage.get_case(user,str(case_id))
+    row=await storage.update_case_privacy(user,str(case_id),payload.private_conversation)
+    return {"case":to_case_out(row)}
+
 
 @app.get("/api/v1/cases/{case_id}/messages",tags=["cases"])
 async def get_case_messages(
@@ -405,7 +415,7 @@ async def add_case_message(case_id: UUID,payload: MessageCreateRequest,user: dic
     external_demo_allowed=can_use_external_synthetic_ai(
         user,bool(case.get("synthetic_demo",False)),payload.external_ai_consent
     )
-    blocked=(settings.llm_provider!="mock" and not external_demo_allowed)
+    blocked=bool(case.get("private_conversation",False)) or (settings.llm_provider!="mock" and not external_demo_allowed)
     if blocked:
         reply=(
             "This case is marked sensitive. No external AI provider was contacted. "
@@ -521,7 +531,7 @@ async def generate_case_assessment(
     external_demo_allowed=can_use_external_synthetic_ai(
         user,bool(case.get("synthetic_demo",False)),payload.external_ai_consent
     )
-    if settings.llm_provider!="mock" and not external_demo_allowed:
+    if case.get("private_conversation",False) or (settings.llm_provider!="mock" and not external_demo_allowed):
         raise HTTPException(403,{"code":"PRIVACY_GATE_BLOCKED",
                                  "message":"External assessment is disabled for real cases. Use the mock provider or an approved synthetic demo account.",
                                  "details":[]})
