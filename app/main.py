@@ -854,9 +854,10 @@ async def generate_document(payload: DocumentGenerateRequest,user: dict=Depends(
             logger.warning("draft_knowledge_base_unavailable case_id=%s",str(payload.case_id))
 
     external_demo_allowed=can_use_external_synthetic_ai(user,synthetic_demo,payload.external_ai_consent)
-    if settings.llm_provider!="mock" and not external_demo_allowed:
+    private_conversation=bool(case and case.get("private_conversation",False))
+    if private_conversation or (settings.llm_provider!="mock" and not external_demo_allowed):
         raise HTTPException(403,{"code":"PRIVACY_GATE_BLOCKED",
-                                 "message":"External drafting is disabled for real cases. Use the mock provider or an approved synthetic demo account.",
+                                 "message":"External drafting is blocked by this case's privacy settings or demo eligibility.",
                                  "details":[]})
 
     source_context=[
