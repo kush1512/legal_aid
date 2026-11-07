@@ -31,3 +31,24 @@ def test_case_builder_marks_evidence_as_unreviewed_and_lists_missing_information
     assert result["evidence"][0]["status"] == "mentioned_by_user_not_reviewed"
     assert "Date and time of transaction" in result["missing_information"]
     assert "not independently verified" in result["limitations"][0]
+
+
+def test_case_builder_api_is_owner_scoped_and_uses_user_messages(client, auth_headers):
+    created = client.post("/api/v1/cases", headers=auth_headers, json={
+        "category": "property_real_estate",
+        "description": "I paid ₹18,000 on 05/10/2026 and have the rent agreement and bank receipt.",
+        "sensitive": False,
+    })
+    assert created.status_code == 201, created.text
+    case_id = created.json()["case"]["id"]
+
+    result = client.get(f"/api/v1/cases/{case_id}/case-builder", headers=auth_headers)
+    assert result.status_code == 200, result.text
+    summary = result.json()["case_builder"]
+    assert any(f["value"] == "₹18,000" for f in summary["facts"])
+    assert any(f["value"] == "05/10/2026" for f in summary["facts"])
+    assert any(e["item"] == "rent agreement" for e in summary["evidence"])
+
+    other_user = {"X-Dev-User-ID": "00000000-0000-4000-8000-000000000002"}
+    hidden = client.get(f"/api/v1/cases/{case_id}/case-builder", headers=other_user)
+    assert hidden.status_code == 404
