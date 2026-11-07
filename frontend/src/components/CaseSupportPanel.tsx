@@ -77,7 +77,7 @@ export function CaseSupportPanel({ caseInfo }: { caseInfo: CaseInfo }) {
         const demoMatches = SEED_LAWYERS.filter((lawyer) => lawyer.practice_areas.includes(caseInfo.category));
         setLawyers((ranked.length ? ranked : demoMatches).slice(0, 3));
       })
-      .catch(() => { if (active) setLawyers([]); })
+      .catch(() => { if (active) setLawyers(SEED_LAWYERS.filter((lawyer) => lawyer.practice_areas.includes(caseInfo.category)).slice(0, 3)); })
       .finally(() => { if (active) setLawyerLoading(false); });
     return () => { active = false; };
   }, [caseInfo.category, caseInfo.jurisdiction?.city, caseInfo.jurisdiction?.district, caseInfo.jurisdiction?.state]);
