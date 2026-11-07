@@ -27,6 +27,7 @@ export interface Case {
   jurisdiction: Jurisdiction;
   preferred_language: string;
   sensitive: boolean;
+  synthetic_demo?: boolean;
   created_at: string;
   updated_at: string;
   latest_message_at?: string | null;
@@ -203,6 +204,7 @@ export interface CreateCaseRequest {
   preferred_language?: string;
   sensitive?: boolean;
   external_ai_consent?: boolean;
+  synthetic_demo?: boolean;
 }
 export interface CreateCaseResponse {
   case: Case;
