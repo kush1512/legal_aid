@@ -28,6 +28,7 @@ export interface Case {
   preferred_language: string;
   sensitive: boolean;
   synthetic_demo?: boolean;
+  private_conversation?: boolean;
   created_at: string;
   updated_at: string;
   latest_message_at?: string | null;
