@@ -10,7 +10,7 @@ async def test_sensitive_payload_is_blocked_before_provider_initialization():
         fallback_llm_provider="",llm_max_retries=0
     )
     orchestrator=LLMOrchestrator(settings)
-    with pytest.raises(ProviderError,match="synthetic demonstration"):
+    with pytest.raises(ProviderError,match="sensitive case data"):
         await orchestrator.generate_text("synthetic placeholder",sensitive=True,user_consent=False)
 
 @pytest.mark.asyncio
@@ -29,7 +29,7 @@ async def test_external_provider_is_blocked_without_global_demo_opt_in():
         synthetic_demo_user_ids="00000000-0000-4000-8000-000000000001"
     )
     orchestrator=LLMOrchestrator(settings)
-    with pytest.raises(ProviderError,match="synthetic demonstration"):
+    with pytest.raises(ProviderError,match="explicit consent"):
         await orchestrator.generate_text(
             "synthetic facts",sensitive=False,user_consent=True,synthetic_demo=True
         )
