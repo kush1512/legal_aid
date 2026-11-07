@@ -46,8 +46,5 @@ The brief's example request/response shapes (`input_mode` on case creation, `{ca
 | Community list supports only `newest`/`popular` | "Helpful" = posts with a lawyer reply, demo data only |
 | Unhandled 500s carry no CORS headers | Browser reports them as network errors; UI shows "Can't reach the server" |
 
-## Backend issue found
-`app/main.py` line 29 contains a literal `\n` (`from app.storage import Storage, utcnow\nfrom app.speech import ...`), a SyntaxError that stops the API starting. Split it into two lines.
-
 ## Backend CORS
 Set `CORS_ORIGINS` on the backend to include your Vercel URL and `http://localhost:3000`.

@@ -1,5 +1,7 @@
 # Legal Aid frontend
 
+Lives in `/frontend` of the `legal_aid` repo; the FastAPI backend is at the repo root.
+
 First Aid for Legal Advice: Next.js (App Router), React, TypeScript, Tailwind CSS, Lucide icons.
 Talks to the separate FastAPI backend (`kush1512/legal_aid`) or runs fully offline in **mock mode**.
 
@@ -26,7 +28,7 @@ NEXT_PUBLIC_DEV_USER_ID=00000000-0000-4000-8000-000000000001   # dev only
 `npm run dev` · `npm run build` · `npm start` · `npm run typecheck`
 
 ## Deploy to Vercel
-1. Import the repo; the framework is detected (`vercel.json` included).
+1. Import the repo and set **Root Directory = `frontend`** (this app lives in a subfolder of the backend repo).
 2. Add the env vars from `.env.example` (public values only).
 3. Add the Vercel URL to the backend's `CORS_ORIGINS`.
 4. Deploy. Use `NEXT_PUBLIC_API_MODE=mock` for a demo before the backend is live.
