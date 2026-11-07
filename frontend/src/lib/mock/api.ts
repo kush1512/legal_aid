@@ -106,6 +106,14 @@ export const mockApi: LegalAidApi = {
     if (!c) throw notFound("Case");
     return { case: c };
   },
+  async updateCasePrivacy(id, privateConversation) {
+    await wait(150);
+    const c = state().cases.find((x) => x.id === id);
+    if (!c) throw notFound("Case");
+    c.private_conversation = privateConversation;
+    persist();
+    return { case: c };
+  },
   async sendMessage(id, req) {
     await wait(700);
     const s = state();
