@@ -1,6 +1,6 @@
 # Groq-backed hybrid intake (development demo)
 
-The backend already contains a Groq adapter in `app/llm.py`. No additional provider package is required; `groq` is already in `requirements.txt`.
+The backend already contains a Groq adapter in `app/llm.py`. No additional provider package is required; `groq` is already in `requirements.txt`. The example model below is listed by Groq as supporting structured outputs.
 
 ## Local environment
 
@@ -13,7 +13,7 @@ MOCK_STORAGE=true
 
 LLM_PROVIDER=groq
 GROQ_API_KEY=your_groq_api_key
-LLM_MODEL=llama-3.3-70b-versatile
+LLM_MODEL=openai/gpt-oss-20b
 
 ALLOW_EXTERNAL_LLM_FOR_SYNTHETIC=true
 SYNTHETIC_DEMO_USER_IDS=00000000-0000-4000-8000-000000000001
