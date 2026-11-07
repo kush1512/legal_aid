@@ -31,6 +31,7 @@ from app.schemas import (
 )
 from app.security import get_current_user
 from app.storage import Storage, utcnow
+from app.case_builder import build_case_summary
 from app.speech import GroqWhisperProvider
 
 settings = get_settings()
@@ -385,6 +386,19 @@ async def update_case_privacy(case_id: UUID, payload: PrivateConversationUpdateR
     await storage.get_case(user,str(case_id))
     row=await storage.update_case_privacy(user,str(case_id),payload.private_conversation)
     return {"case":to_case_out(row)}
+
+
+@app.get("/api/v1/cases/{case_id}/case-builder", tags=["cases"])
+async def get_case_builder(case_id: UUID, user: dict=Depends(get_current_user)):
+    """Return a deterministic, editable case-building view from user-authored messages."""
+    case = await storage.get_case(user, str(case_id))
+    messages = await storage.list_messages(user, str(case_id))
+    summary = build_case_summary(
+        messages,
+        case["category"],
+        case.get("jurisdiction") or {"country": "IN"},
+    )
+    return {"case_id": str(case_id), "case_builder": summary}
 
 
 @app.get("/api/v1/cases/{case_id}/messages",tags=["cases"])
