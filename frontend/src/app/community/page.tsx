@@ -12,7 +12,7 @@ import { useApp } from "@/components/AppProvider";
 import { MessageDialog } from "@/components/MessageDialog";
 import { Badge, Button, EmptyState, ErrorState, Field, LoadingBlock, Notice, PageHeader, PrivacyHint, Switch, Tabs, inputCls } from "@/components/ui";
 import { ConsentCheckbox } from "@/components/domain";
-import { DemoCommunityExamples } from "@/components/DemoCommunityExamples";
+import { SEED_POSTS } from "@/lib/mock/data";
 
 type Tab = "latest" | "trending" | "helpful";
 const REPORT_REASONS = ["Contains personal information", "Harassment or abuse", "Misleading legal claim", "Spam", "Other"];
@@ -37,8 +37,9 @@ export default function CommunityPage() {
 
   const hasLawyerReply = (id: string) => (DEMO_COMMENTS[id] ?? []).some((c) => c.lawyer) || (local.comments[id] ?? []).some((c) => c.lawyer);
   const posts = useMemo(() => {
-    const base = [...mine.filter((m) => !category || m.category === category), ...(res.data?.items ?? [])];
-    return tab === "helpful" ? base.filter((p) => isMock && hasLawyerReply(p.id)) : base;
+    const demoPosts = isMock ? [] : SEED_POSTS;
+    const base = [...mine.filter((m) => !category || m.category === category), ...demoPosts.filter((m) => !category || m.category === category), ...(res.data?.items ?? [])];
+    return tab === "helpful" ? base.filter((p) => hasLawyerReply(p.id)) : base;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [res.data, mine, tab, category, local.comments]);
 
@@ -107,7 +108,7 @@ function countTree(list: DemoComment[], local: CommunityLocal): number { return 
 function PostCard({ post, local, update, onMessage, defaultAnon }: { post: CommunityPost; local: CommunityLocal; update: (f: (c: CommunityLocal) => CommunityLocal) => void; onMessage: (k: string, t: string) => void; defaultAnon: boolean }) {
   const [open, setOpen] = useState(false);
   const mineVote = local.votes[post.id] ?? 0;
-  const top = [...(isMock ? DEMO_COMMENTS[post.id] ?? [] : []), ...(local.comments[post.id] ?? [])];
+  const top = [...(DEMO_COMMENTS[post.id] ?? []), ...(local.comments[post.id] ?? [])];
   const total = Math.max(post.comment_count, countTree(top, local));
   const vote = (v: 1 | -1) => update((c) => { const votes = { ...c.votes }; if (votes[post.id] === v) delete votes[post.id]; else votes[post.id] = v; return { ...c, votes }; });
   const pending = post.moderation_status === "pending";
@@ -124,7 +125,7 @@ function PostCard({ post, local, update, onMessage, defaultAnon }: { post: Commu
             <div className="flex flex-wrap items-center gap-2 text-xs text-navy/70">
               <Badge tone="mist">{categoryShort(post.category)}</Badge>
               <span className="inline-flex items-center gap-1 font-medium">{post.anonymous && <EyeOff className="h-3 w-3" aria-hidden />}{post.display_name}</span><span>· {timeAgo(post.created_at)}</span>
-              {pending && <Badge tone="amber">Pending review</Badge>}
+              {pending && <Badge tone="amber">Pending review</Badge>}\n              {post.id.startsWith("p0000000-") && <Badge tone="amber">Demo conversation</Badge>}
               {isMock && DEMO_COMMENTS[post.id]?.some((c) => c.lawyer) && <Badge tone="teal" icon={BadgeCheck}>Lawyer reply</Badge>}
             </div>
             <h3 id={`t-${post.id}`} className="mt-1.5 font-display text-lg font-semibold leading-snug">{post.title}</h3>
