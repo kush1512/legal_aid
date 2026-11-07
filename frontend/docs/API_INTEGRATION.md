@@ -37,14 +37,14 @@ The brief's example request/response shapes (`input_mode` on case creation, `{ca
 ## Backend gaps (UI behaviour)
 | Gap | What the UI does |
 |---|---|
-| No endpoint to list a case's messages | Transcript kept in `sessionStorage` for the tab; the UI says so |
-| Case creation does not run AI | After intake the case page sends one visible message ("Please review my description...") to get follow-up questions |
-| No document upload endpoint | Upload disabled in real mode with an explanation; mock mode keeps file names only |
-| No comments, votes, reports, blocks, DMs | Stored in `localStorage`, labelled "this device only" |
-| Lawyer experience, fees, availability, portfolio, recommendations | Shown as "Not provided yet" in real mode; demo data in mock mode only |
-| No similar-judgments data | Section states it is unavailable |
-| Community list supports only `newest`/`popular` | "Helpful" = posts with a lawyer reply, demo data only |
-| Unhandled 500s carry no CORS headers | Browser reports them as network errors; UI shows "Can't reach the server" |
+| Conversation history endpoint exists, but frontend does not call it yet | Transcript is kept in `sessionStorage` for the tab. Wire `GET /cases/{id}/messages` to restore persisted history across sessions. |
+| Case creation does not run AI | After intake the case page sends one visible message ("Please review my description...") to get follow-up questions. |
+| Document upload endpoint exists, but frontend does not call it yet | Real-mode upload is disabled. Wire `POST /cases/{id}/documents` and refresh `GET /cases/{id}/documents`; mock mode currently keeps file names only. |
+| Community comment/vote/report endpoints exist, but frontend does not call them yet | Comments, votes, reports, blocks and private messages are currently stored in `localStorage` and remain device-local. Wire comments and votes if cross-session public discussion is required; keep blocks and private messages local unless their own privacy and moderation requirements are implemented. |
+| Lawyer sample personas are mock-only | Synthetic lawyer personas and their extra fields are available only in mock mode. Real mode lists backend-approved profiles; the API does not provide experience, fees, availability, portfolio or recommendations. |
+| No similar-judgments data | Section states it is unavailable. |
+| Community list supports only `newest`/`popular` in the backend | "Helpful" is a mock-only view based on demo lawyer replies. |
+| Unhandled 500s may not carry CORS headers | Browser may report these as network errors; UI shows "Can't reach the server". |
 
 ## Backend CORS
 Set `CORS_ORIGINS` on the backend to include your Vercel URL and `http://localhost:3000`.

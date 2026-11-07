@@ -26,17 +26,17 @@ export default function LawyerProfilePage() {
           <article className="space-y-6">
             <header className="space-y-2">
               <div className="flex flex-wrap items-center gap-2"><h1 className="text-2xl font-semibold sm:text-3xl">{l.display_name}</h1>
-                {l.verification_status === "verified" ? <Badge tone="teal" icon={BadgeCheck}>Verified</Badge> : <Badge tone="amber">Verification {l.verification_status}</Badge>}</div>
+                {isMock ? <Badge tone="amber">Synthetic demo · not verified</Badge> : l.verification_status === "verified" ? <Badge tone="teal" icon={BadgeCheck}>Verified</Badge> : <Badge tone="amber">Verification {l.verification_status}</Badge>}</div>
               <p className="flex items-center gap-1 text-navy/80"><MapPin className="h-4 w-4" aria-hidden />{[l.city, l.state].filter(Boolean).join(", ") || "Location not provided"}</p>
               {l.bio && <p className="max-w-2xl text-sm leading-relaxed">{l.bio}</p>}
             </header>
-            {isMock && <Notice tone="mock">Synthetic profile. Experience, fees, portfolio and recommendations are demonstration data.</Notice>}
+            {isMock && <Notice tone="mock">Fictional demonstration persona. This is not a real lawyer; credentials, enrolment details, experience, fees, portfolio and recommendations are synthetic and have not been verified. Do not contact or rely on this profile for legal representation.</Notice>}
 
             <div className="grid gap-4 md:grid-cols-2">
               <Card as="section" aria-labelledby="cred"><h2 id="cred" className="mb-2 flex items-center gap-2 text-lg font-semibold"><ShieldCheck className="h-5 w-5 text-teal-700" aria-hidden />Verification and credentials</h2>
                 <dl className="space-y-2 text-sm">
-                  <div><dt className="text-navy/60">Status</dt><dd className="font-medium capitalize">{l.verification_status}</dd></div>
-                  <div><dt className="text-navy/60">Bar Council enrolment</dt><dd className="font-medium">{l.bar_council_enrolment ?? NP}</dd></div>
+                  <div><dt className="text-navy/60">Status</dt><dd className="font-medium">{isMock ? "Synthetic sample — not verified" : l.verification_status}</dd></div>
+                  <div><dt className="text-navy/60">Bar Council enrolment</dt><dd className="font-medium">{isMock ? "Synthetic placeholder — no real enrolment" : l.bar_council_enrolment ?? NP}</dd></div>
                   <div><dt className="text-navy/60">Courts and jurisdictions</dt><dd className="font-medium">{l.jurisdictions.length ? l.jurisdictions.join(", ") : NP}</dd></div>
                   <div><dt className="text-navy/60">Experience</dt><dd className="font-medium">{x ? `${x.experience_years} years` : NP}</dd></div></dl></Card>
               <Card as="section" aria-labelledby="prac"><h2 id="prac" className="mb-2 text-lg font-semibold">Practice and languages</h2>
