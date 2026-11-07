@@ -433,7 +433,7 @@ async def add_case_message(case_id: UUID,payload: MessageCreateRequest,user: dic
     external_demo_allowed=can_use_external_synthetic_ai(
         user,bool(case.get("synthetic_demo",False)),payload.external_ai_consent
     )
-    blocked=bool(case.get("private_conversation",False)) or bool(case.get("sensitive",True)) or not payload.external_ai_consent or not settings.allow_external_llm_for_non_sensitive
+    blocked=settings.llm_provider!="mock" and (bool(case.get("private_conversation",False)) or bool(case.get("sensitive",True)) or not payload.external_ai_consent or not settings.allow_external_llm_for_non_sensitive)
     if blocked:
         reply=(
             "This case is marked sensitive. No external AI provider was contacted. "
@@ -549,7 +549,7 @@ async def generate_case_assessment(
     external_demo_allowed=can_use_external_synthetic_ai(
         user,bool(case.get("synthetic_demo",False)),payload.external_ai_consent
     )
-    if case.get("private_conversation",False) or case.get("sensitive",True) or not payload.external_ai_consent or not settings.allow_external_llm_for_non_sensitive:
+    if settings.llm_provider!="mock" and (case.get("private_conversation",False) or case.get("sensitive",True) or not payload.external_ai_consent or not settings.allow_external_llm_for_non_sensitive):
         raise HTTPException(403,{"code":"PRIVACY_GATE_BLOCKED",
                                  "message":"External assessment is disabled for real cases. Use the mock provider or an approved synthetic demo account.",
                                  "details":[]})
@@ -873,7 +873,7 @@ async def generate_document(payload: DocumentGenerateRequest,user: dict=Depends(
 
     external_demo_allowed=can_use_external_synthetic_ai(user,synthetic_demo,payload.external_ai_consent)
     private_conversation=bool(case and case.get("private_conversation",False))
-    if private_conversation or sensitive or not payload.external_ai_consent or not settings.allow_external_llm_for_non_sensitive:
+    if settings.llm_provider!="mock" and (private_conversation or sensitive or not payload.external_ai_consent or not settings.allow_external_llm_for_non_sensitive):
         raise HTTPException(403,{"code":"PRIVACY_GATE_BLOCKED",
                                  "message":"External drafting is blocked by this case's privacy settings or demo eligibility.",
                                  "details":[]})
