@@ -6,7 +6,7 @@ export interface Prefs {
   defaultExternalAiConsent: boolean;
   /** Default for the community "post anonymously" switch. */
   defaultAnonymousPosting: boolean;
-  /** Default for new cases' "sensitive" flag. Contract defaults to true. */
+  /** Default for new cases' "sensitive" flag. The backend still enforces category and identifier checks. */
   defaultSensitive: boolean;
   shareAggregateInsights: boolean;
   consentLog: Array<{ at: string; scope: string; granted: boolean }>;
