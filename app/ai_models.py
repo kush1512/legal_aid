@@ -11,7 +11,7 @@ class ExtractedFact(BaseModel):
     verified: bool = False
 
 class CaseIntakeResult(BaseModel):
-    assistant_reply: str = "Please share any missing dates, documents, and steps already taken."
+    assistant_reply: str = Field(min_length=1, description="A natural, context-aware assistant response to the latest user message.")
     case_status: CaseStatus = CaseStatus.needs_information
     follow_up_questions: list[str] = Field(default_factory=list)
     extracted_facts: list[ExtractedFact] = Field(default_factory=list)

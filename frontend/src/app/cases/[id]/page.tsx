@@ -28,18 +28,24 @@ function CaseDetail() {
   const [followUps, setFollowUps] = useState<string[]>([]);
   const [status, setStatus] = useState<string | null>(null);
   const [consent, setConsent] = useState(false);
+  const [consentLoaded, setConsentLoaded] = useState(false);
   const [draft, setDraft] = useState("");
   const [inputMode, setInputMode] = useState<"text" | "voice_transcription">("text");
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<unknown>(null);
+  const [assessmentBusy, setAssessmentBusy] = useState(false);
+  const [assessmentError, setAssessmentError] = useState<string | null>(null);
   const ranReview = useRef(false);
   const assessment = useAsync(() => api.getAssessment(id), [id, status]);
   const docs = useAsync(() => api.listCaseDocuments(id), [id]);
 
   useEffect(() => {
+    setConsentLoaded(false);
+    ranReview.current = false;
     setMessages(loadTranscript(id));
     const stored = readJson<{ consent?: boolean } | null>(consentKey(id), null, "session");
     setConsent(stored?.consent ?? prefs.defaultExternalAiConsent);
+    setConsentLoaded(true);
   }, [id, prefs.defaultExternalAiConsent]);
 
   const send = useCallback(async (content: string, mode: "text" | "voice_transcription" = "text") => {
@@ -62,13 +68,26 @@ function CaseDetail() {
 
   // After intake, ask the assistant to review the description once. Consent was given on the intake form.
   useEffect(() => {
-    if (sp.get("review") === "1" && c.data && !ranReview.current) {
+    if (sp.get("review") === "1" && c.data && consentLoaded && !ranReview.current) {
       ranReview.current = true;
       const hasReply = loadTranscript(id).some((m) => m.role === "assistant");
       if (!hasReply) void send(REVIEW_PROMPT);
       window.history.replaceState(null, "", `/cases/${id}?tab=conversation`);
     }
-  }, [c.data, id, sp, send]);
+  }, [c.data, id, sp, send, consentLoaded]);
+
+  const generateAssessment = useCallback(async () => {
+    setAssessmentBusy(true); setAssessmentError(null);
+    try {
+      await api.generateAssessment(id, { external_ai_consent: consent });
+      setStatus((value) => value === "assessment-refresh" ? "assessment-refresh-2" : "assessment-refresh");
+      await assessment.reload();
+    } catch (error) {
+      setAssessmentError(describeError(error).hint);
+    } finally {
+      setAssessmentBusy(false);
+    }
+  }, [id, consent, assessment]);
 
   const localDocs = useMemo(() => (isMock ? readJson<Array<{ name: string; size: number; at: string }>>(localDocsKey(id), [], "session") : []), [id]);
 
@@ -96,6 +115,7 @@ function CaseDetail() {
         { id: "timeline", label: "Timeline" }, { id: "documents", label: "Documents", count: (docs.data?.items.length ?? 0) + localDocs.length || undefined }]} />
 
       <div className="mt-6" role="tabpanel" id={`panel-${tab}`} aria-labelledby={`tab-${tab}`}>
+        {tab === "assessment" && <div className="mb-4 space-y-2"><Button onClick={generateAssessment} loading={assessmentBusy}>Generate detailed assessment</Button>{assessmentError && <Notice tone="danger" title="Assessment could not be generated">{assessmentError}</Notice>}<p className="text-xs text-navy/70">Uses the case conversation and any available verified legal sources. External processing remains subject to the case privacy setting and demo allowlist.</p></div>}
         {tab === "assessment" && (assessment.loading ? <LoadingBlock rows={4} /> :
           assessment.error instanceof ApiError && assessment.error.code === "ASSESSMENT_NOT_FOUND" ?
             <EmptyState title="No assessment yet" action={<Button onClick={() => setTab("conversation")}>Open the conversation</Button>}>The assistant prepares an assessment after reviewing your description. Send a message to begin.</EmptyState> :
