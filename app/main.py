@@ -312,6 +312,10 @@ async def transcribe_audio(
     if case_id:
         case=await storage.get_case(user,case_id)
         synthetic_demo=bool(case.get("synthetic_demo",False))
+        if case.get("private_conversation",False) or case.get("sensitive",True):
+            raise HTTPException(403,{"code":"PRIVACY_GATE_BLOCKED",
+                                     "message":"Voice transcription is blocked for private or sensitive cases. Use text input instead.",
+                                     "details":[]})
     if not can_use_external_synthetic_ai(user,synthetic_demo,external_ai_consent):
         raise HTTPException(403,{"code":"PRIVACY_GATE_BLOCKED",
                                  "message":"External speech transcription is available only for allowlisted synthetic demonstration cases with explicit consent. Use text input for real cases.",
