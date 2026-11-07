@@ -62,6 +62,9 @@ def build_case_summary(messages: list[dict[str, Any]], category: str, jurisdicti
                 seen.add(key)
                 facts.append({"key": key[0], "value": amount, "source": "user_provided", "evidence_quote": amount, "verified": False})
         for term in EVIDENCE_TERMS.get(category, []):
+            # Prefer a specific platform label over a duplicate generic message label.
+            if term == "message" and re.search(r"\\bwhatsapp\\b", content, re.IGNORECASE):
+                continue
             match = re.search(re.escape(term), content, re.IGNORECASE)
             if match:
                 evidence_mentions.append({"item": term, "status": "mentioned_by_user_not_reviewed", "source": "user_provided", "evidence_quote": match.group(0)})
