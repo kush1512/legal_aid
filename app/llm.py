@@ -263,14 +263,14 @@ class LLMOrchestrator:
     ) -> None:
         if not provider.external:
             return
-        if not (self.settings.allow_external_llm_for_synthetic and synthetic_demo):
+        if sensitive:
             raise ProviderError(
-                "External AI is disabled except for allowlisted synthetic demonstration cases",
+                "External AI processing blocked for sensitive case data",
                 transient=False
             )
-        if sensitive and not (self.settings.allow_external_llm_for_sensitive and user_consent):
+        if not (self.settings.allow_external_llm_for_non_sensitive and user_consent):
             raise ProviderError(
-                "External AI processing blocked by sensitive-data privacy policy",
+                "External AI requires an eligible non-sensitive case and explicit consent",
                 transient=False
             )
 
@@ -280,16 +280,14 @@ class LLMOrchestrator:
     ):
         # Reject disallowed external work before constructing SDK clients or making network calls.
         if provider_name != "mock":
-            if not (self.settings.allow_external_llm_for_synthetic and synthetic_demo):
+            if sensitive:
                 raise ProviderError(
-                    "External AI is disabled except for allowlisted synthetic demonstration cases",
+                    "External AI processing blocked for sensitive case data",
                     transient=False
                 )
-            if sensitive and not (
-                self.settings.allow_external_llm_for_sensitive and user_consent
-            ):
+            if not (self.settings.allow_external_llm_for_non_sensitive and user_consent):
                 raise ProviderError(
-                    "External AI processing blocked by sensitive-data privacy policy",
+                    "External AI requires an eligible non-sensitive case and explicit consent",
                     transient=False
                 )
         provider = self._provider(provider_name)
