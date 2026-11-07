@@ -1,9 +1,9 @@
 name: Backend tests
 on:
   push:
-    branches: [main]
+    branches: [main, feat/case-building-grounded-actions-benchmarks]
   pull_request:
-    branches: [main]
+    branches: [main, feat/case-private-conversation-mode]
 jobs:
   test:
     runs-on: ubuntu-latest
