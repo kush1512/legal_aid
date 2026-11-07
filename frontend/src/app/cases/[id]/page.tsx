@@ -28,6 +28,7 @@ function CaseDetail() {
   const [followUps, setFollowUps] = useState<string[]>([]);
   const [status, setStatus] = useState<string | null>(null);
   const [consent, setConsent] = useState(false);
+  const [consentLoaded, setConsentLoaded] = useState(false);
   const [draft, setDraft] = useState("");
   const [inputMode, setInputMode] = useState<"text" | "voice_transcription">("text");
   const [sending, setSending] = useState(false);
@@ -39,9 +40,12 @@ function CaseDetail() {
   const docs = useAsync(() => api.listCaseDocuments(id), [id]);
 
   useEffect(() => {
+    setConsentLoaded(false);
+    ranReview.current = false;
     setMessages(loadTranscript(id));
     const stored = readJson<{ consent?: boolean } | null>(consentKey(id), null, "session");
     setConsent(stored?.consent ?? prefs.defaultExternalAiConsent);
+    setConsentLoaded(true);
   }, [id, prefs.defaultExternalAiConsent]);
 
   const send = useCallback(async (content: string, mode: "text" | "voice_transcription" = "text") => {
@@ -64,13 +68,13 @@ function CaseDetail() {
 
   // After intake, ask the assistant to review the description once. Consent was given on the intake form.
   useEffect(() => {
-    if (sp.get("review") === "1" && c.data && !ranReview.current) {
+    if (sp.get("review") === "1" && c.data && consentLoaded && !ranReview.current) {
       ranReview.current = true;
       const hasReply = loadTranscript(id).some((m) => m.role === "assistant");
       if (!hasReply) void send(REVIEW_PROMPT);
       window.history.replaceState(null, "", `/cases/${id}?tab=conversation`);
     }
-  }, [c.data, id, sp, send]);
+  }, [c.data, id, sp, send, consentLoaded]);
 
   const generateAssessment = useCallback(async () => {
     setAssessmentBusy(true); setAssessmentError(null);
