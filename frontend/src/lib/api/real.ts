@@ -73,6 +73,7 @@ export const realApi: LegalAidApi = {
   getCase: (id) => request(`/cases/${encodeURIComponent(id)}`),
   sendMessage: (id, req) => request(`/cases/${encodeURIComponent(id)}/messages`, { json: req }),
   getAssessment: (id) => request(`/cases/${encodeURIComponent(id)}/assessment`),
+  generateAssessment: (id, req) => request(`/cases/${encodeURIComponent(id)}/assessment`, { method: "POST", json: req }),
   listCaseDocuments: (id) => request(`/cases/${encodeURIComponent(id)}/documents`),
   searchLegal: (req) => request("/legal/search", { json: req }),
   getProvision: (id) => request(`/legal/provision/${encodeURIComponent(id)}`),
