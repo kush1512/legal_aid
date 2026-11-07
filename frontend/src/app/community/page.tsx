@@ -205,6 +205,7 @@ function CommentNode({ c, depth, parent, local, update, onMessage, defaultAnon }
         <p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed">{c.body}</p>
         <div className="mt-2 flex flex-wrap items-center gap-1">
           <button type="button" aria-pressed={my === 1} aria-label="Upvote comment" onClick={() => update((s) => { const v = { ...s.votes }; if (v[c.id] === 1) delete v[c.id]; else v[c.id] = 1; return { ...s, votes: v }; })} className={cn("inline-flex items-center gap-0.5 rounded px-1.5 py-1 text-xs font-semibold", my === 1 ? "text-teal-700" : "text-navy/70 hover:bg-white")}><ArrowBigUp className={cn("h-4 w-4", my === 1 && "fill-current")} aria-hidden />{c.votes + my}</button>
+          <button type="button" aria-pressed={my === -1} aria-label="Downvote comment" onClick={() => update((s) => { const v = { ...s.votes }; if (v[c.id] === -1) delete v[c.id]; else v[c.id] = -1; return { ...s, votes: v }; })} className={cn("inline-flex items-center gap-0.5 rounded px-1.5 py-1 text-xs font-semibold", my === -1 ? "text-danger" : "text-navy/70 hover:bg-white")}><ArrowBigDown className={cn("h-4 w-4", my === -1 && "fill-current")} aria-hidden />Downvote</button>
           <Button variant="ghost" size="sm" onClick={() => setReply((r) => !r)} aria-expanded={reply}>Reply</Button>
           <Button variant="ghost" size="sm" icon={Hide} onClick={toggleHidden}>Hide</Button>
           {!c.anonymous && !c.lawyer && <Button variant="ghost" size="sm" icon={ShieldBan} onClick={toggleBlock}>Block</Button>}
