@@ -14,7 +14,7 @@ export interface Prefs {
 
 export const DEFAULT_PREFS: Prefs = {
   language: "en",
-  defaultExternalAiConsent: false,
+  defaultExternalAiConsent: true,
   defaultAnonymousPosting: true,
   defaultSensitive: false,
   shareAggregateInsights: false,
