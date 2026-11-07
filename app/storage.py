@@ -108,8 +108,9 @@ class Storage:
             row=await self._run(op)
         else:
             def op():
-                result=self._client(user["token"]).table("cases").update(
-                    {"private_conversation":private_conversation}
+                # The API performs an owner-scoped read before this server-controlled update.
+                result=self._service_client().table("cases").update(
+                    {"private_conversation":private_conversation,"updated_at":utcnow()}
                 ).eq("id",case_id).eq("user_id",user["id"]).execute()
                 return result.data[0] if result.data else None
             row=await self._run(op)
