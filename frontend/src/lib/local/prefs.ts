@@ -16,7 +16,7 @@ export const DEFAULT_PREFS: Prefs = {
   language: "en",
   defaultExternalAiConsent: false,
   defaultAnonymousPosting: true,
-  defaultSensitive: true,
+  defaultSensitive: false,
   shareAggregateInsights: false,
   consentLog: [],
 };
