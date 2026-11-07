@@ -130,3 +130,43 @@ def test_users_cannot_comment_on_unapproved_post(client,auth_headers):
         headers=auth_headers,json={"content":"This comment should not be accepted."}
     )
     assert response.status_code==404
+
+
+def test_intake_prompt_uses_full_conversation_and_requires_next_question(client,auth_headers,monkeypatch):
+    captured = {}
+
+    async def fake_generate(prompt,response_model,**kwargs):
+        captured["prompt"] = prompt
+        parsed = CaseIntakeResult(
+            assistant_reply="Thanks, that confirms the agreement ended on 30 September. Did you request the deposit back in writing?",
+            case_status="needs_information",
+            follow_up_questions=["Did you request the deposit back in writing?"],
+            extracted_facts=[]
+        )
+        return Generation("{}", "mock", "test-double", is_mock=True), parsed
+
+    monkeypatch.setattr("app.main.llm.generate_structured_output",fake_generate)
+    created=client.post("/api/v1/cases",headers=auth_headers,json={
+        "category":"property_real_estate",
+        "description":"My landlord has not returned my security deposit."
+    })
+    assert created.status_code==201,created.text
+    case_id=created.json()["case"]["id"]
+
+    first=client.post(f"/api/v1/cases/{case_id}/messages",headers=auth_headers,json={
+        "content":"My rental agreement ended on 30 September."
+    })
+    assert first.status_code==201,first.text
+    assert "one clear, specific" in captured["prompt"]
+    assert "My landlord has not returned my security deposit." in captured["prompt"]
+    assert "My rental agreement ended on 30 September." in captured["prompt"]
+    assert first.json()["assistant_message"]["content"].startswith("Thanks, that confirms")
+    assert first.json()["follow_up_questions"] == ["Did you request the deposit back in writing?"]
+
+
+def test_intake_reply_is_required_in_structured_output():
+    import pytest
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        CaseIntakeResult()
