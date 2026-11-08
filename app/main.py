@@ -23,7 +23,7 @@ from app.legal_rag import hybrid_legal_search, verify_indexed_source, get_provis
 from app.legal_verification import list_pending_documents, get_document_review_detail, review_document
 from app.llm import LLMOrchestrator, ProviderError
 from app.schemas import (
-    CaseCreateRequest, CaseCreateResponse, CaseListResponse, CaseOut, CaseStatus, AssessmentGenerateRequest, PrivateConversationUpdateRequest,
+    CaseCreateRequest, CaseCreateResponse, CaseListResponse, CaseOut, CaseStatus, AssessmentGenerateRequest, PrivateConversationUpdateRequest, CaseSensitivityUpdateRequest,
     CommunityCommentCreateRequest, PostVoteRequest,
     MessageCreateRequest, MessageCreateResponse, MessageOut,
     LegalSearchRequest, LegalSearchResponse, LegalSearchItem, CitationOut,
@@ -78,7 +78,7 @@ app = FastAPI(
 )
 app.add_middleware(
     CORSMiddleware, allow_origins=settings.cors_origin_list,
-    allow_credentials=True, allow_methods=["GET","POST","OPTIONS"],
+    allow_credentials=True, allow_methods=["GET","POST","PATCH","OPTIONS"],
     allow_headers=["Authorization","Content-Type","X-Dev-User-ID","X-Request-ID"]
 )
 app.add_middleware(RateLimitMiddleware, max_requests=settings.rate_limit_requests,
@@ -176,12 +176,11 @@ def contains_sensitive_identifiers(text: str) -> bool:
     return any(re.search(pattern, text, re.IGNORECASE) for pattern in patterns)
 
 
-def case_requires_protection(category: str, text: str, user_marked_sensitive: bool) -> bool:
-    return bool(
-        user_marked_sensitive
-        or category in {"marriage_family", "personal_safety_privacy"}
-        or contains_sensitive_identifiers(text)
-    )
+def case_requires_protection(category: str, user_marked_sensitive: bool | None) -> bool:
+    """Apply the category default unless the user explicitly overrides it."""
+    if user_marked_sensitive is not None:
+        return user_marked_sensitive
+    return category == "personal_safety_privacy"
 
 def official_escalation_for_case(category: str, text: str) -> dict[str, Any] | None:
     """Deterministic escalation guidance for known urgent India-specific situations."""
@@ -379,7 +378,7 @@ async def create_case(payload: CaseCreateRequest, user: dict=Depends(get_current
         "user_id":user["id"],"title":title,"category":payload.category.value,
         "status":"intake","jurisdiction":payload.jurisdiction.model_dump(exclude_none=True),
         "preferred_language":payload.preferred_language,
-        "synthetic_demo":synthetic_demo,"sensitive":case_requires_protection(payload.category.value,payload.description,payload.sensitive),
+        "synthetic_demo":synthetic_demo,"sensitive":case_requires_protection(payload.category.value,payload.sensitive),
         "private_conversation":False
     })
     message=await storage.insert("case_messages",user,{
@@ -405,6 +404,14 @@ async def update_case_privacy(case_id: UUID, payload: PrivateConversationUpdateR
                               user: dict=Depends(get_current_user)):
     await storage.get_case(user,str(case_id))
     row=await storage.update_case_privacy(user,str(case_id),payload.private_conversation)
+    return {"case":to_case_out(row)}
+
+
+@app.patch("/api/v1/cases/{case_id}/sensitivity",tags=["cases"])
+async def update_case_sensitivity(case_id: UUID, payload: CaseSensitivityUpdateRequest,
+                                  user: dict=Depends(get_current_user)):
+    await storage.get_case(user,str(case_id))
+    row=await storage.update_case_sensitivity(user,str(case_id),payload.sensitive)
     return {"case":to_case_out(row)}
 
 
