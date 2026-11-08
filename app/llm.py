@@ -10,9 +10,14 @@ from app.config import Settings
 logger = logging.getLogger("legal_aid.llm")
 
 class ProviderError(RuntimeError):
-    def __init__(self, message: str, *, transient: bool = False):
+    def __init__(
+        self, message: str, *, transient: bool = False,
+        upstream_status: int | str | None = None, error_type: str | None = None
+    ):
         super().__init__(message)
         self.transient = transient
+        self.upstream_status = upstream_status
+        self.error_type = error_type
 
 @dataclass
 class Generation:
@@ -148,15 +153,24 @@ class GroqProvider(LLMProvider):
 
     async def generate_text(self, prompt: str, *, model: str, max_tokens: int) -> Generation:
         result = await self._chat(prompt, model, max_tokens, False)
+        if not getattr(result, "choices", None):
+            raise ProviderError("Groq returned no completion choices", transient=False, error_type="empty_choices")
         choice = result.choices[0]
-        return Generation(choice.message.content or "", self.name, model, usage=_usage_from_openai(result))
+        content = choice.message.content
+        if not isinstance(content, str) or not content.strip():
+            raise ProviderError("Groq returned an empty response", transient=False, error_type="empty_content")
+        return Generation(content, self.name, model, usage=_usage_from_openai(result))
 
     async def generate_structured_output(
         self, prompt: str, *, model: str, max_tokens: int, response_model: Type[BaseModel]
     ) -> tuple[Generation, BaseModel]:
         schema_prompt = prompt + "\\nJSON schema:\\n" + json.dumps(response_model.model_json_schema())
         result = await self._chat(schema_prompt, model, max_tokens, True)
+        if not getattr(result, "choices", None):
+            raise ProviderError("Groq returned no completion choices", transient=False, error_type="empty_choices")
         raw = result.choices[0].message.content or ""
+        if not raw.strip():
+            raise ProviderError("Groq returned an empty structured response", transient=False, error_type="empty_content")
         try:
             parsed = response_model.model_validate_json(raw)
         except (ValidationError, ValueError) as exc:
@@ -239,7 +253,11 @@ def _classify_provider_error(exc: Exception) -> ProviderError:
     transient = status in (408, 409, 429, 500, 502, 503, 504) or any(
         key in text for key in ("timeout", "temporarily unavailable", "connection reset", "rate limit", "429")
     )
-    return ProviderError("LLM provider request failed", transient=transient)
+    return ProviderError(
+        "LLM provider request failed", transient=transient,
+        upstream_status=status if isinstance(status, (int, str)) else None,
+        error_type=type(exc).__name__
+    )
 
 class LLMOrchestrator:
     def __init__(self, settings: Settings):
@@ -290,6 +308,7 @@ class LLMOrchestrator:
                     "External AI requires an eligible non-sensitive case and explicit consent",
                     transient=False
                 )
+        logger.info("llm_request provider=%s model=%s", provider_name, model)
         provider = self._provider(provider_name)
         self._privacy_check(
             provider, sensitive=sensitive, user_consent=user_consent,
@@ -313,6 +332,11 @@ class LLMOrchestrator:
                 last_error = ProviderError("LLM provider timed out", transient=True)
             except ProviderError as exc:
                 last_error = exc
+                logger.warning(
+                    "llm_attempt_failed provider=%s model=%s transient=%s upstream_status=%s error_type=%s attempt=%s",
+                    provider_name, model, exc.transient, exc.upstream_status,
+                    exc.error_type or "ProviderError", attempt + 1
+                )
             if not last_error.transient or attempt >= self.settings.llm_max_retries:
                 break
             await asyncio.sleep(min(2 ** attempt, 4))
@@ -338,6 +362,10 @@ class LLMOrchestrator:
             ):
                 raise
             fallback = self.settings.fallback_llm_provider
+            logger.warning(
+                "llm_fallback_selected primary=%s fallback=%s reason=%s",
+                primary, fallback, exc.error_type or "transient_provider_failure"
+            )
             return await self._invoke(
                 operation_factory, provider_name=fallback,
                 model=self.settings.fallback_llm_model or model,
