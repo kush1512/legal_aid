@@ -29,7 +29,10 @@ class CaseCreateRequest(BaseModel):
     jurisdiction: Jurisdiction = Field(default_factory=Jurisdiction)
     preferred_language: str = Field(default="en", max_length=20)
     synthetic_demo: bool = False
-    sensitive: bool = False
+    sensitive: bool | None = None
+
+class CaseSensitivityUpdateRequest(BaseModel):
+    sensitive: bool
 
 class PrivateConversationUpdateRequest(BaseModel):
     private_conversation: bool
