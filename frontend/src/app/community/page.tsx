@@ -12,6 +12,7 @@ import { useApp } from "@/components/AppProvider";
 import { MessageDialog } from "@/components/MessageDialog";
 import { Badge, Button, EmptyState, ErrorState, Field, LoadingBlock, Notice, PageHeader, PrivacyHint, Switch, Tabs, inputCls } from "@/components/ui";
 import { ConsentCheckbox } from "@/components/domain";
+import { DemoCommunityExamples } from "@/components/DemoCommunityExamples";
 
 type Tab = "latest" | "trending" | "helpful";
 const REPORT_REASONS = ["Contains personal information", "Harassment or abuse", "Misleading legal claim", "Spam", "Other"];
@@ -44,6 +45,7 @@ export default function CommunityPage() {
   return (
     <>
       <PageHeader title="Community" subtitle="Learn from other people’s experiences. Posts are general discussion, not legal advice." actions={<Button icon={PenLine} onClick={() => setComposer((v) => !v)} aria-expanded={composer}>New post</Button>} />
+      {!isMock && <DemoCommunityExamples />}
       <Notice tone="privacy" title="Public here, private in your account" className="mb-5">Your account identity is never shown. You choose how each post appears. Anonymous posting hides your display name, but it is a display option, not a guarantee of anonymity, so keep identifying details out.</Notice>
 
       {composer && <Composer onDone={(p) => { setMine((m) => [p, ...m]); }} onClose={() => setComposer(false)} defaultAnon={prefs.defaultAnonymousPosting} />}

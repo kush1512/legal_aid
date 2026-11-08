@@ -13,6 +13,7 @@ export interface LegalAidApi {
   /** Appends a user message and runs case understanding. The reply carries the assistant message. */
   sendMessage(caseId: string, req: T.SendMessageRequest): Promise<T.SendMessageResponse>;
   getAssessment(caseId: string): Promise<{ assessment: T.CaseAssessment }>;
+  generateAssessment(caseId: string, req: { external_ai_consent?: boolean }): Promise<{ assessment: T.CaseAssessment }>;
   listCaseDocuments(caseId: string): Promise<T.Paginated<T.CaseDocument>>;
   searchLegal(req: T.LegalSearchRequest): Promise<T.LegalSearchResponse>;
   getProvision(id: string): Promise<{ provision: T.Provision }>;

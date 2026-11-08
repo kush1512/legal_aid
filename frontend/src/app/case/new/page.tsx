@@ -11,6 +11,7 @@ import { cn, formatBytes } from "@/lib/utils";
 import { useApp } from "@/components/AppProvider";
 import { Button, Field, Notice, PageHeader, PrivacyHint, Switch, inputCls } from "@/components/ui";
 import { CategoryIcon, ConsentCheckbox, VoiceRecorder } from "@/components/domain";
+import { SimilarCasesPanel } from "@/components/SimilarCasesPanel";
 
 const MIN = 5, MAX = 12000;
 
@@ -27,6 +28,7 @@ function Intake() {
   const [district, setDistrict] = useState("");
   const [sensitive, setSensitive] = useState(prefs.defaultSensitive);
   const [consent, setConsent] = useState(prefs.defaultExternalAiConsent);
+  const [syntheticDemo, setSyntheticDemo] = useState(false);
   const [files, setFiles] = useState<File[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
@@ -49,6 +51,7 @@ function Intake() {
         category, description: description.trim(), preferred_language: language, sensitive,
         jurisdiction: { country: "IN", ...(state && { state }), ...(district.trim() && { district: district.trim() }) },
         external_ai_consent: consent,
+        synthetic_demo: syntheticDemo,
       });
       appendToTranscript(res.case.id, res.initial_message);
       writeJson(consentKey(res.case.id), { consent, inputMode }, "session");
@@ -75,6 +78,7 @@ function Intake() {
           ))}
         </div>
         {catErr && <p role="alert" className="mt-1.5 text-sm font-medium text-danger">{catErr}</p>}
+        <SimilarCasesPanel category={category} />
       </fieldset>
 
       <section aria-labelledby="s2" className="space-y-4">
@@ -119,8 +123,9 @@ function Intake() {
         <h2 id="s4" className="flex items-center gap-2 text-base font-semibold"><Lock className="h-4 w-4 text-teal-700" aria-hidden />4. Privacy and consent</h2>
         <Switch id="sensitive" checked={sensitive} onChange={setSensitive} label="Treat this case as sensitive"
           description="Recommended. Sensitive cases are never sent to an external AI service unless you explicitly allow it below." />
+        <Switch id="synthetic-demo" checked={syntheticDemo} onChange={setSyntheticDemo} label="This is a fictional demonstration case" description="Only select this for made-up test facts. When enabled, an allowlisted development account may send this case to Groq after you grant consent. Never use real names, addresses, account numbers or actual disputes." />
         <ConsentCheckbox id="consent" checked={consent} onChange={setConsent}>
-          <strong>Allow an external AI service to process this case.</strong> If ticked, your description and later messages may be sent to an AI provider to prepare follow-up questions and an assessment. Leave it unticked to keep everything off external services; the assistant will then offer limited help. You can change this per message.
+          <strong>Allow an external AI service to process this case.</strong> If ticked, your description and later messages may be sent to an AI provider to prepare follow-up questions and an assessment. Groq access is limited to explicitly fictional demo cases on an allowlisted development account. Leave it unticked to keep everything off external services; the assistant will then offer limited help. You can change this per message.
         </ConsentCheckbox>
         <p className="text-xs text-navy/70">Your name and contact details are not part of this form and are never shown publicly. Cases are visible only to your account.</p>
       </section>
