@@ -14,6 +14,7 @@ import { AssessmentView } from "@/components/AssessmentView";
 import { Badge, Button, EmptyState, ErrorState, LoadingBlock, Notice, ProgressBar, Tabs, inputCls } from "@/components/ui";
 import { ConsentCheckbox, MockAiBadge, VoiceRecorder } from "@/components/domain";
 import { useApp } from "@/components/AppProvider";
+import { CaseSupportPanel } from "@/components/CaseSupportPanel";
 
 type Tab = "assessment" | "conversation" | "timeline" | "documents";
 const REVIEW_PROMPT = "Please review my description and tell me what else you need to know.";
@@ -121,6 +122,7 @@ function CaseDetail() {
             <EmptyState title="No assessment yet" action={<Button onClick={() => setTab("conversation")}>Open the conversation</Button>}>The assistant prepares an assessment after reviewing your description. Send a message to begin.</EmptyState> :
           assessment.error ? <ErrorState error={assessment.error} onRetry={assessment.reload} /> :
           assessment.data && <AssessmentView c={cs} a={assessment.data.assessment} onAskMore={() => setTab("conversation")} />)}
+        {tab === "assessment" && <CaseSupportPanel caseInfo={cs} />}
 
         {tab === "conversation" && (
           <Conversation messages={messages} followUps={followUps} draft={draft} setDraft={setDraft} send={() => send(draft, inputMode)} sending={sending}

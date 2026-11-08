@@ -12,7 +12,7 @@ import { useApp } from "@/components/AppProvider";
 import { MessageDialog } from "@/components/MessageDialog";
 import { Badge, Button, EmptyState, ErrorState, Field, LoadingBlock, Notice, PageHeader, PrivacyHint, Switch, Tabs, inputCls } from "@/components/ui";
 import { ConsentCheckbox } from "@/components/domain";
-import { DemoCommunityExamples } from "@/components/DemoCommunityExamples";
+import { SEED_POSTS } from "@/lib/mock/data";
 
 type Tab = "latest" | "trending" | "helpful";
 const REPORT_REASONS = ["Contains personal information", "Harassment or abuse", "Misleading legal claim", "Spam", "Other"];
@@ -37,15 +37,16 @@ export default function CommunityPage() {
 
   const hasLawyerReply = (id: string) => (DEMO_COMMENTS[id] ?? []).some((c) => c.lawyer) || (local.comments[id] ?? []).some((c) => c.lawyer);
   const posts = useMemo(() => {
-    const base = [...mine.filter((m) => !category || m.category === category), ...(res.data?.items ?? [])];
-    return tab === "helpful" ? base.filter((p) => isMock && hasLawyerReply(p.id)) : base;
+    const demoPosts = isMock ? [] : SEED_POSTS;
+    const base = [...mine.filter((m) => !category || m.category === category), ...demoPosts.filter((m) => !category || m.category === category), ...(res.data?.items ?? [])];
+    return tab === "helpful" ? base.filter((p) => hasLawyerReply(p.id)) : base;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [res.data, mine, tab, category, local.comments]);
 
   return (
     <>
       <PageHeader title="Community" subtitle="Learn from other people’s experiences. Posts are general discussion, not legal advice." actions={<Button icon={PenLine} onClick={() => setComposer((v) => !v)} aria-expanded={composer}>New post</Button>} />
-      {!isMock && <DemoCommunityExamples />}
+
       <Notice tone="privacy" title="Public here, private in your account" className="mb-5">Your account identity is never shown. You choose how each post appears. Anonymous posting hides your display name, but it is a display option, not a guarantee of anonymity, so keep identifying details out.</Notice>
 
       {composer && <Composer onDone={(p) => { setMine((m) => [p, ...m]); }} onClose={() => setComposer(false)} defaultAnon={prefs.defaultAnonymousPosting} />}
@@ -107,7 +108,7 @@ function countTree(list: DemoComment[], local: CommunityLocal): number { return 
 function PostCard({ post, local, update, onMessage, defaultAnon }: { post: CommunityPost; local: CommunityLocal; update: (f: (c: CommunityLocal) => CommunityLocal) => void; onMessage: (k: string, t: string) => void; defaultAnon: boolean }) {
   const [open, setOpen] = useState(false);
   const mineVote = local.votes[post.id] ?? 0;
-  const top = [...(isMock ? DEMO_COMMENTS[post.id] ?? [] : []), ...(local.comments[post.id] ?? [])];
+  const top = [...(DEMO_COMMENTS[post.id] ?? []), ...(local.comments[post.id] ?? [])];
   const total = Math.max(post.comment_count, countTree(top, local));
   const vote = (v: 1 | -1) => update((c) => { const votes = { ...c.votes }; if (votes[post.id] === v) delete votes[post.id]; else votes[post.id] = v; return { ...c, votes }; });
   const pending = post.moderation_status === "pending";
@@ -125,7 +126,8 @@ function PostCard({ post, local, update, onMessage, defaultAnon }: { post: Commu
               <Badge tone="mist">{categoryShort(post.category)}</Badge>
               <span className="inline-flex items-center gap-1 font-medium">{post.anonymous && <EyeOff className="h-3 w-3" aria-hidden />}{post.display_name}</span><span>· {timeAgo(post.created_at)}</span>
               {pending && <Badge tone="amber">Pending review</Badge>}
-              {isMock && DEMO_COMMENTS[post.id]?.some((c) => c.lawyer) && <Badge tone="teal" icon={BadgeCheck}>Lawyer reply</Badge>}
+              {post.id.startsWith("p0000000-") && <Badge tone="amber">Demo conversation</Badge>}
+              {DEMO_COMMENTS[post.id]?.some((c) => c.lawyer) && <Badge tone="teal" icon={BadgeCheck}>Lawyer reply</Badge>}
             </div>
             <h3 id={`t-${post.id}`} className="mt-1.5 font-display text-lg font-semibold leading-snug">{post.title}</h3>
             <p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed">{post.content}</p>
@@ -204,6 +206,7 @@ function CommentNode({ c, depth, parent, local, update, onMessage, defaultAnon }
         <p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed">{c.body}</p>
         <div className="mt-2 flex flex-wrap items-center gap-1">
           <button type="button" aria-pressed={my === 1} aria-label="Upvote comment" onClick={() => update((s) => { const v = { ...s.votes }; if (v[c.id] === 1) delete v[c.id]; else v[c.id] = 1; return { ...s, votes: v }; })} className={cn("inline-flex items-center gap-0.5 rounded px-1.5 py-1 text-xs font-semibold", my === 1 ? "text-teal-700" : "text-navy/70 hover:bg-white")}><ArrowBigUp className={cn("h-4 w-4", my === 1 && "fill-current")} aria-hidden />{c.votes + my}</button>
+          <button type="button" aria-pressed={my === -1} aria-label="Downvote comment" onClick={() => update((s) => { const v = { ...s.votes }; if (v[c.id] === -1) delete v[c.id]; else v[c.id] = -1; return { ...s, votes: v }; })} className={cn("inline-flex items-center gap-0.5 rounded px-1.5 py-1 text-xs font-semibold", my === -1 ? "text-danger" : "text-navy/70 hover:bg-white")}><ArrowBigDown className={cn("h-4 w-4", my === -1 && "fill-current")} aria-hidden />Downvote</button>
           <Button variant="ghost" size="sm" onClick={() => setReply((r) => !r)} aria-expanded={reply}>Reply</Button>
           <Button variant="ghost" size="sm" icon={Hide} onClick={toggleHidden}>Hide</Button>
           {!c.anonymous && !c.lawyer && <Button variant="ghost" size="sm" icon={ShieldBan} onClick={toggleBlock}>Block</Button>}
