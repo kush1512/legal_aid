@@ -46,3 +46,15 @@ async def test_sensitive_external_provider_requires_separate_opt_in_and_consent(
         await orchestrator.generate_text(
             "synthetic facts",sensitive=True,user_consent=True,synthetic_demo=True
         )
+
+
+def test_personal_safety_category_defaults_to_private_mode_only():
+    from app.main import case_requires_protection
+
+    # Family, property and cyber cases are not automatically marked sensitive.
+    assert case_requires_protection("marriage_family", "A fictional inheritance disagreement", False) is False
+    assert case_requires_protection("property_real_estate", "A fictional rental deposit dispute", False) is False
+    assert case_requires_protection("digital_fraud_cybercrime", "A fictional online scam", False) is False
+    # Personal identifiers and an explicit user choice remain protected in every category.
+    assert case_requires_protection("property_real_estate", "Call me at 9876543210", False) is True
+    assert case_requires_protection("property_real_estate", "A fictional dispute", True) is True
