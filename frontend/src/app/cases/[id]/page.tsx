@@ -92,6 +92,19 @@ function CaseDetail() {
 
   const localDocs = useMemo(() => (isMock ? readJson<Array<{ name: string; size: number; at: string }>>(localDocsKey(id), [], "session") : []), [id]);
 
+  const toggleSensitiveCase = useCallback(async () => {
+    if (!c.data) return;
+    setPrivacyBusy(true);
+    try {
+      await api.updateCaseSensitivity(id, !Boolean(c.data.case.sensitive));
+      await c.reload();
+    } catch (error) {
+      setAssessmentError(describeError(error).hint);
+    } finally {
+      setPrivacyBusy(false);
+    }
+  }, [c, id]);
+
   const togglePrivateConversation = useCallback(async () => {
     if (!c.data) return;
     setPrivacyBusy(true);
@@ -122,15 +135,23 @@ function CaseDetail() {
         </div>
         <h1 className="text-2xl font-semibold sm:text-3xl">{cs.title}</h1>
         <div className="max-w-md"><ProgressBar value={meta.progress} label={`Case progress: ${meta.label}`} /></div>
-        <div className="rounded-xl border border-navy/10 bg-white p-4 shadow-card">
+        <div className="rounded-xl border border-navy/10 bg-white p-4 shadow-card space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="min-w-0">
-              <p className="flex items-center gap-2 text-sm font-semibold"><Lock className="h-4 w-4" aria-hidden />Private conversation</p>
+              <p className="flex items-center gap-2 text-sm font-semibold"><Lock className="h-4 w-4" aria-hidden />Sensitive case</p>
+              <p className="mt-1 max-w-2xl text-xs text-navy/70">{cs.sensitive ? "On: no external AI provider will receive this case, even if message consent is selected." : "Off: external AI may be used only when you explicitly consent and backend safeguards allow it."}</p>
+            </div>
+            <Button size="sm" variant={cs.sensitive ? "primary" : "secondary"} loading={privacyBusy} onClick={toggleSensitiveCase}>{cs.sensitive ? "Mark as non-sensitive" : "Mark as sensitive"}</Button>
+          </div>
+          <div className="border-t border-navy/10 pt-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="flex items-center gap-2 text-sm font-semibold"><Lock className="h-4 w-4" aria-hidden />Private conversation</p>
               <p className="mt-1 max-w-2xl text-xs text-navy/70">{cs.private_conversation ? "On: this case will not be sent to an external LLM or speech provider." : "Off: external AI is still blocked for sensitive cases. This setting adds an extra block for every case."}</p>
             </div>
             <Button size="sm" variant={cs.private_conversation ? "primary" : "secondary"} loading={privacyBusy} onClick={togglePrivateConversation}>{cs.private_conversation ? "Turn private mode off" : "Turn private mode on"}</Button>
           </div>
-          {cs.sensitive && <p className="mt-2 text-xs font-medium text-teal-800">Sensitive-case protection remains active regardless of this setting.</p>}
+          </div>
         </div>
       </header>
 
@@ -226,7 +247,7 @@ function Conversation(p: {
         <p className="text-xs text-navy/60">Press Enter to send · Shift + Enter for a new line</p>
         <VoiceRecorder caseId={p.caseId} consent={p.consent} onTranscript={p.onVoice} disabled={p.sending} />
         <ConsentCheckbox id="msg-consent" checked={p.consent} onChange={p.setConsent}>
-          Allow an external AI service to process this message.{p.sensitive && <> This case is <strong>sensitive</strong>; without this, no AI service is contacted.</>}
+          Allow an external AI service to process this message.{p.sensitive && <> This case is <strong>sensitive</strong>; no external AI provider will be contacted, even if you tick this.</>}
         </ConsentCheckbox>
         <div className="flex justify-end"><Button type="submit" icon={Send} loading={p.sending} disabled={!p.draft.trim()}>Send message</Button></div>
       </form>
