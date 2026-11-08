@@ -11,6 +11,7 @@ export interface LegalAidApi {
   listCases(q?: T.ListCasesQuery): Promise<T.Paginated<T.Case>>;
   getCase(id: string): Promise<{ case: T.Case }>;
   updateCasePrivacy(id: string, privateConversation: boolean): Promise<{ case: T.Case }>;
+  updateCaseSensitivity(id: string, sensitive: boolean): Promise<{ case: T.Case }>;
   /** Appends a user message and runs case understanding. The reply carries the assistant message. */
   sendMessage(caseId: string, req: T.SendMessageRequest): Promise<T.SendMessageResponse>;
   getAssessment(caseId: string): Promise<{ assessment: T.CaseAssessment }>;
