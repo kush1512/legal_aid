@@ -2,6 +2,7 @@ import os
 os.environ.setdefault("APP_ENV","development")
 os.environ.setdefault("DEV_AUTH_BYPASS","true")
 os.environ.setdefault("MOCK_STORAGE","true")
+os.environ.setdefault("RATE_LIMIT_REQUESTS","10000")
 os.environ.setdefault("LLM_PROVIDER","mock")
 os.environ.setdefault("LLM_MODEL","mock-legal-aid-v1")
 os.environ.setdefault("ALLOW_EXTERNAL_LLM_FOR_SENSITIVE","false")

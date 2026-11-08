@@ -126,14 +126,24 @@ def test_case_private_conversation_can_be_enabled_and_disabled(client,auth_heade
     assert disabled.json()["case"]["private_conversation"] is False
 
 
-def test_sensitive_category_and_personal_identifiers_are_protected(client,auth_headers):
+def test_category_privacy_defaults_and_personal_identifiers_are_protected(client,auth_headers):
     family=client.post("/api/v1/cases",headers=auth_headers,json={
         "category":"marriage_family",
-        "description":"A family matter requiring confidential guidance.",
+        "description":"A fictional family matter requiring guidance.",
         "sensitive":False
     })
     assert family.status_code==201
-    assert family.json()["case"]["sensitive"] is True
+    assert family.json()["case"]["sensitive"] is False
+    assert family.json()["case"]["private_conversation"] is False
+
+    safety=client.post("/api/v1/cases",headers=auth_headers,json={
+        "category":"personal_safety_privacy",
+        "description":"A fictional personal safety matter.",
+        "sensitive":False
+    })
+    assert safety.status_code==201
+    assert safety.json()["case"]["private_conversation"] is True
+
     pii=client.post("/api/v1/cases",headers=auth_headers,json={
         "category":"property_real_estate",
         "description":"My contact number is 9876543210 and I need help.",
