@@ -87,7 +87,7 @@ export const mockApi: LegalAidApi = {
     const c: T.Case = {
       id, title: req.title || req.description.trim().split("\n")[0].slice(0, 120), category: req.category, status: "intake",
       jurisdiction: req.jurisdiction ?? { country: "IN" }, preferred_language: req.preferred_language ?? "en",
-      sensitive: req.sensitive ?? true, synthetic_demo: req.synthetic_demo ?? false, created_at: t, updated_at: t, latest_message_at: t,
+      sensitive: req.sensitive ?? (req.category === "personal_safety_privacy"), synthetic_demo: req.synthetic_demo ?? false, created_at: t, updated_at: t, latest_message_at: t,
     };
     const initial: T.CaseMessage = { id: uid(), case_id: id, role: "user", content: req.description, created_at: t, ai_metadata: null };
     s.cases.unshift(c); s.messages[id] = [initial]; persist();
@@ -111,6 +111,15 @@ export const mockApi: LegalAidApi = {
     const c = state().cases.find((x) => x.id === id);
     if (!c) throw notFound("Case");
     c.private_conversation = privateConversation;
+    persist();
+    return { case: c };
+  },
+  async updateCaseSensitivity(id, sensitive) {
+    await wait(150);
+    const c = state().cases.find((x) => x.id === id);
+    if (!c) throw notFound("Case");
+    c.sensitive = sensitive;
+    c.updated_at = now();
     persist();
     return { case: c };
   },
