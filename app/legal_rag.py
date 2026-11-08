@@ -24,6 +24,12 @@ def _kb_client():
     return create_client(settings.supabase_url, settings.effective_supabase_secret_key)
 
 
+def clear_legal_search_cache() -> None:
+    """Invalidate cached retrieval results after a source verification decision."""
+    with _cache_lock:
+        _cache.clear()
+
+
 async def hybrid_legal_search(
     query: str,
     *,
@@ -34,7 +40,7 @@ async def hybrid_legal_search(
 ) -> list[dict[str, Any]]:
     """Hybrid retrieval; falls back to indexed PostgreSQL keyword search if local embeddings are unavailable."""
     settings = get_settings()
-    if not (settings.supabase_url and settings.supabase_service_role_key):
+    if not (settings.supabase_url and settings.effective_supabase_secret_key):
         raise HTTPException(503, "Legal knowledge base is not configured")
 
     effective_date = as_of_date or date.today()

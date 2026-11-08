@@ -41,13 +41,20 @@ With the example configuration, the API uses a mock LLM and development-only in-
 ## Supabase
 
 Apply SQL migrations in numeric order from `supabase/migrations/`:
+
 1. `0001_initial_schema.sql`
 2. `0002_legal_search_functions.sql`
 3. `0003_security_and_private_storage.sql`
-4. `0004_citation_ownership.sql`\n5. `0005_synthetic_demo_privacy.sql`\n6. `0006_server_owned_records.sql`\n7. `0007_community_feed_projection.sql`\n8. `0008_include_general_law_in_category_search.sql`\n9. `0009_lock_community_and_lawyer_writes.sql`\n10. `0010_lock_reports_and_endorsements.sql`
+4. `0004_citation_ownership.sql`
 5. `0005_synthetic_demo_privacy.sql`
 6. `0006_server_owned_records.sql`
 7. `0007_community_feed_projection.sql`
+8. `0008_include_general_law_in_category_search.sql`
+9. `0009_lock_community_and_lawyer_writes.sql`
+10. `0010_lock_reports_and_endorsements.sql`
+11. `0011_atomic_legal_ingestion.sql`
+12. `0012_legal_source_verification_workflow.sql`
+13. `0013_legal_review_queue_state.sql`
 
 Set `SUPABASE_URL`, `SUPABASE_ANON_KEY` and (server-only) `SUPABASE_SERVICE_ROLE_KEY`. Set `MOCK_STORAGE=false` and `DEV_AUTH_BYPASS=false`. Frontend code must never receive the service-role key.
 

@@ -12,13 +12,15 @@ from fastapi import Depends, FastAPI, HTTPException, Query, Request, UploadFile,
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from starlette.concurrency import run_in_threadpool
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.status import HTTP_201_CREATED
 
 from app.ai_models import CaseIntakeResult, DraftContent, AssessmentContent
 from app.config import get_settings
 from app.embeddings import get_embedding_provider
-from app.legal_rag import hybrid_legal_search, verify_indexed_source, get_provision
+from app.legal_rag import hybrid_legal_search, verify_indexed_source, get_provision, clear_legal_search_cache
+from app.legal_verification import list_pending_documents, get_document_review_detail, review_document
 from app.llm import LLMOrchestrator, ProviderError
 from app.schemas import (
     CaseCreateRequest, CaseCreateResponse, CaseListResponse, CaseOut, CaseStatus, AssessmentGenerateRequest,
@@ -27,7 +29,8 @@ from app.schemas import (
     LegalSearchRequest, LegalSearchResponse, LegalSearchItem, CitationOut,
     DocumentGenerateRequest, DraftOut, CommunityPostCreateRequest, CommunityPostOut,
     LawyerOut, ErrorResponse, LawyerProfileCreateRequest, ReportCreateRequest,
-    ReportStatusUpdateRequest, CommunityModerationRequest, LawyerVerificationUpdateRequest
+    ReportStatusUpdateRequest, CommunityModerationRequest, LawyerVerificationUpdateRequest,
+    LegalSourceReviewRequest
 )
 from app.security import get_current_user
 from app.storage import Storage, utcnow
@@ -795,6 +798,66 @@ async def get_legal_provision(provision_id: UUID,user: dict=Depends(get_current_
         "effective_from":provision.get("effective_from"),"effective_to":provision.get("effective_to"),
         "jurisdiction":provision.get("jurisdiction")
     }}
+
+
+@app.get("/api/v1/admin/legal-documents", tags=["admin"])
+async def admin_list_legal_documents(
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    admin: dict = Depends(require_admin_user)
+):
+    try:
+        return await run_in_threadpool(list_pending_documents, limit, offset)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("admin_legal_queue_failed error_type=%s", type(exc).__name__)
+        raise HTTPException(503, detail="Legal review queue is unavailable") from exc
+
+
+@app.get("/api/v1/admin/legal-documents/{document_id}", tags=["admin"])
+async def admin_get_legal_document(
+    document_id: UUID,
+    chunks_limit: int = Query(default=100, ge=1, le=500),
+    chunks_offset: int = Query(default=0, ge=0),
+    admin: dict = Depends(require_admin_user)
+):
+    try:
+        result = await run_in_threadpool(
+            get_document_review_detail, str(document_id), chunks_limit, chunks_offset
+        )
+        if not result:
+            raise HTTPException(404, detail="Legal document not found")
+        return result
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("admin_legal_detail_failed error_type=%s", type(exc).__name__)
+        raise HTTPException(503, detail="Legal document review details unavailable") from exc
+
+
+@app.post("/api/v1/admin/legal-documents/{document_id}/review", tags=["admin"])
+async def admin_review_legal_document(
+    document_id: UUID,
+    payload: LegalSourceReviewRequest,
+    admin: dict = Depends(require_admin_user)
+):
+    try:
+        result = await run_in_threadpool(
+            review_document,
+            str(document_id),
+            admin["id"],
+            payload.decision,
+            payload.rationale,
+            payload.checklist.model_dump()
+        )
+        clear_legal_search_cache()
+        return {"success": True, "review": result}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("admin_legal_review_failed error_type=%s", type(exc).__name__)
+        raise HTTPException(503, detail="Legal document review could not be completed") from exc
 
 @app.post("/api/v1/documents/generate",response_model=dict,status_code=HTTP_201_CREATED,tags=["documents"])
 async def generate_document(payload: DocumentGenerateRequest,user: dict=Depends(get_current_user)):
