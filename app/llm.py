@@ -263,14 +263,25 @@ class LLMOrchestrator:
     ) -> None:
         if not provider.external:
             return
-        if not (self.settings.allow_external_llm_for_synthetic and synthetic_demo):
+        if sensitive:
             raise ProviderError(
-                "External AI is disabled except for allowlisted synthetic demonstration cases",
+                "External AI processing blocked: sensitive or private case data is never sent externally",
                 transient=False
             )
-        if sensitive and not (self.settings.allow_external_llm_for_sensitive and user_consent):
+        if not user_consent:
             raise ProviderError(
-                "External AI processing blocked by sensitive-data privacy policy",
+                "External AI processing requires explicit user consent",
+                transient=False
+            )
+        if synthetic_demo:
+            if not self.settings.allow_external_llm_for_synthetic:
+                raise ProviderError(
+                    "External AI is disabled for synthetic demonstration cases",
+                    transient=False
+                )
+        elif not self.settings.allow_external_llm_for_non_sensitive:
+            raise ProviderError(
+                "External AI processing is disabled for non-sensitive cases",
                 transient=False
             )
 
@@ -278,18 +289,26 @@ class LLMOrchestrator:
         self, operation, *, provider_name: str, model: str,
         sensitive: bool, user_consent: bool, synthetic_demo: bool
     ):
-        # Reject disallowed external work before constructing SDK clients or making network calls.
+        # Enforce the same policy before constructing an external SDK client.
         if provider_name != "mock":
-            if not (self.settings.allow_external_llm_for_synthetic and synthetic_demo):
+            if sensitive:
                 raise ProviderError(
-                    "External AI is disabled except for allowlisted synthetic demonstration cases",
+                    "External AI processing blocked: sensitive or private case data is never sent externally",
                     transient=False
                 )
-            if sensitive and not (
-                self.settings.allow_external_llm_for_sensitive and user_consent
-            ):
+            if not user_consent:
                 raise ProviderError(
-                    "External AI processing blocked by sensitive-data privacy policy",
+                    "External AI processing requires explicit user consent",
+                    transient=False
+                )
+            if synthetic_demo and not self.settings.allow_external_llm_for_synthetic:
+                raise ProviderError(
+                    "External AI is disabled for synthetic demonstration cases",
+                    transient=False
+                )
+            if not synthetic_demo and not self.settings.allow_external_llm_for_non_sensitive:
+                raise ProviderError(
+                    "External AI processing is disabled for non-sensitive cases",
                     transient=False
                 )
         provider = self._provider(provider_name)
