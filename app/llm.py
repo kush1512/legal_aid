@@ -276,19 +276,31 @@ class LLMOrchestrator:
         return providers[name]()
 
     def _privacy_check(
-        self, provider: LLMProvider, *, sensitive: bool,
-        user_consent: bool, synthetic_demo: bool
+        self,
+        provider: LLMProvider,
+        *,
+        sensitive: bool,
+        user_consent: bool,
+        synthetic_demo: bool
     ) -> None:
         if not provider.external:
             return
+
         if sensitive:
             raise ProviderError(
                 "External AI processing blocked for sensitive case data",
                 transient=False
             )
-        if not (self.settings.allow_external_llm_for_non_sensitive and user_consent):
+
+        if not user_consent:
             raise ProviderError(
-                "External AI requires an eligible non-sensitive case and explicit consent",
+                "External AI processing requires explicit user consent",
+                transient=False
+            )
+
+        if not self.settings.allow_external_llm_for_non_sensitive:
+            raise ProviderError(
+                "External AI processing is disabled for non-sensitive cases",
                 transient=False
             )
 
@@ -296,16 +308,23 @@ class LLMOrchestrator:
         self, operation, *, provider_name: str, model: str,
         sensitive: bool, user_consent: bool, synthetic_demo: bool
     ):
-        # Reject disallowed external work before constructing SDK clients or making network calls.
+        # Enforce the same policy before constructing an external SDK client.
         if provider_name != "mock":
             if sensitive:
                 raise ProviderError(
                     "External AI processing blocked for sensitive case data",
                     transient=False
                 )
-            if not (self.settings.allow_external_llm_for_non_sensitive and user_consent):
+
+            if not user_consent:
                 raise ProviderError(
-                    "External AI requires an eligible non-sensitive case and explicit consent",
+                    "External AI processing requires explicit user consent",
+                    transient=False
+                )
+
+            if not self.settings.allow_external_llm_for_non_sensitive:
+                raise ProviderError(
+                    "External AI processing is disabled for non-sensitive cases",
                     transient=False
                 )
         logger.info("llm_request provider=%s model=%s", provider_name, model)

@@ -61,7 +61,7 @@ async def test_groq_provider_selection_requires_consent_and_non_sensitive_case()
         fallback_llm_provider="",
     )
     orchestrator = LLMOrchestrator(settings)
-    with pytest.raises(ProviderError, match="explicit consent"):
+    with pytest.raises(ProviderError, match="explicit user consent"):
         await orchestrator.generate_text("fictional facts", sensitive=False, user_consent=False)
     with pytest.raises(ProviderError, match="sensitive case data"):
         await orchestrator.generate_text("fictional facts", sensitive=True, user_consent=True)
