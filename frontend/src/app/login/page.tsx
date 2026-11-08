@@ -19,7 +19,31 @@ export default function LoginPage() {
       <PageHeader title="Sign in" subtitle="Your account identity is private and is never shown in public areas." />
       {isMock && <Notice tone="mock" className="mb-4">Demo mode is on, so no sign-in is needed.</Notice>}
       {!isAuthConfigured() ? (
-        <Notice tone="warn" title="Sign-in isn’t configured">Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY to enable Supabase sign-in.{config.devUserId ? " A development user ID is configured and will be sent instead." : " For local development against a backend with DEV_AUTH_BYPASS, set NEXT_PUBLIC_DEV_USER_ID."}</Notice>
+        <div className="space-y-3">
+          <Notice tone="warn" title="Sign-in isn’t configured">
+            Supabase sign-in is not enabled for this prototype. You can continue as a guest for the demo; no email or password is required.
+          </Notice>
+          {config.apiMode === "real" && config.devUserId ? (
+            <Card className="space-y-3">
+              <div>
+                <h2 className="font-semibold text-navy">Continue as guest</h2>
+                <p className="mt-1 text-sm text-navy/75">
+                  This local demo uses a shared development identity. Do not use it for private or real legal matters.
+                </p>
+              </div>
+              <Button type="button" className="w-full" onClick={() => router.replace("/")}>
+                Continue as guest
+              </Button>
+              <p className="text-xs text-navy/60">
+                Guest access works only when the backend has development authentication bypass enabled. It must never be enabled in production.
+              </p>
+            </Card>
+          ) : (
+            <Notice tone="info">
+              Guest access is unavailable because no development identity is configured. Use demo mode or configure Supabase Auth.
+            </Notice>
+          )}
+        </div>
       ) : (
         <Card><form onSubmit={submit} className="space-y-4">
           {err && <Notice tone="danger">{err}</Notice>}

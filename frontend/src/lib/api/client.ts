@@ -10,9 +10,11 @@ export interface LegalAidApi {
   createCase(req: T.CreateCaseRequest): Promise<T.CreateCaseResponse>;
   listCases(q?: T.ListCasesQuery): Promise<T.Paginated<T.Case>>;
   getCase(id: string): Promise<{ case: T.Case }>;
+  updateCasePrivacy(id: string, privateConversation: boolean): Promise<{ case: T.Case }>;
   /** Appends a user message and runs case understanding. The reply carries the assistant message. */
   sendMessage(caseId: string, req: T.SendMessageRequest): Promise<T.SendMessageResponse>;
   getAssessment(caseId: string): Promise<{ assessment: T.CaseAssessment }>;
+  generateAssessment(caseId: string, req: { external_ai_consent?: boolean }): Promise<{ assessment: T.CaseAssessment }>;
   listCaseDocuments(caseId: string): Promise<T.Paginated<T.CaseDocument>>;
   searchLegal(req: T.LegalSearchRequest): Promise<T.LegalSearchResponse>;
   getProvision(id: string): Promise<{ provision: T.Provision }>;
