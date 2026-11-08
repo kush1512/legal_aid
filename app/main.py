@@ -173,11 +173,9 @@ def contains_sensitive_identifiers(text: str) -> bool:
 
 
 def case_requires_protection(category: str, text: str, user_marked_sensitive: bool) -> bool:
-    return bool(
-        user_marked_sensitive
-        or category in {"marriage_family", "personal_safety_privacy"}
-        or contains_sensitive_identifiers(text)
-    )
+    # Category defaults to private mode are handled separately. Sensitivity remains
+    # an independent hard block for user-marked cases and detected personal identifiers.
+    return bool(user_marked_sensitive or contains_sensitive_identifiers(text))
 
 def official_escalation_for_case(category: str, text: str) -> dict[str, Any] | None:
     """Deterministic escalation guidance for known urgent India-specific situations."""
@@ -359,7 +357,7 @@ async def create_case(payload: CaseCreateRequest, user: dict=Depends(get_current
         "status":"intake","jurisdiction":payload.jurisdiction.model_dump(exclude_none=True),
         "preferred_language":payload.preferred_language,
         "synthetic_demo":synthetic_demo,"sensitive":case_requires_protection(payload.category.value,payload.description,payload.sensitive),
-        "private_conversation":False
+        "private_conversation":payload.category.value == "personal_safety_privacy"
     })
     message=await storage.insert("case_messages",user,{
         "case_id":row["id"],"user_id":user["id"],"role":"user",
