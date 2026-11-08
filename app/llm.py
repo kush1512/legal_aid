@@ -273,15 +273,14 @@ class LLMOrchestrator:
                 "External AI processing requires explicit user consent",
                 transient=False
             )
-        if synthetic_demo:
-            if not self.settings.allow_external_llm_for_synthetic:
-                raise ProviderError(
-                    "External AI is disabled for synthetic demonstration cases",
-                    transient=False
-                )
-        elif not self.settings.allow_external_llm_for_non_sensitive:
+        if not self.settings.allow_external_llm_for_non_sensitive:
             raise ProviderError(
                 "External AI processing is disabled for non-sensitive cases",
+                transient=False
+            )
+        if synthetic_demo and not self.settings.allow_external_llm_for_synthetic:
+            raise ProviderError(
+                "External AI is disabled for synthetic demonstration cases",
                 transient=False
             )
 
@@ -301,14 +300,14 @@ class LLMOrchestrator:
                     "External AI processing requires explicit user consent",
                     transient=False
                 )
+            if not self.settings.allow_external_llm_for_non_sensitive:
+                raise ProviderError(
+                    "External AI processing is disabled for non-sensitive cases",
+                    transient=False
+                )
             if synthetic_demo and not self.settings.allow_external_llm_for_synthetic:
                 raise ProviderError(
                     "External AI is disabled for synthetic demonstration cases",
-                    transient=False
-                )
-            if not synthetic_demo and not self.settings.allow_external_llm_for_non_sensitive:
-                raise ProviderError(
-                    "External AI processing is disabled for non-sensitive cases",
                     transient=False
                 )
         provider = self._provider(provider_name)
