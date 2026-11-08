@@ -46,3 +46,28 @@ async def test_sensitive_external_provider_requires_separate_opt_in_and_consent(
         await orchestrator.generate_text(
             "synthetic facts",sensitive=True,user_consent=True,synthetic_demo=True
         )
+
+
+
+def test_category_sensitivity_defaults_and_explicit_overrides():
+    from app.main import case_requires_protection
+
+    assert case_requires_protection("personal_safety_privacy", None) is True
+    assert case_requires_protection("property_real_estate", None) is False
+    assert case_requires_protection("marriage_family", None) is False
+    assert case_requires_protection("digital_fraud_cybercrime", None) is False
+    assert case_requires_protection("personal_safety_privacy", False) is False
+    assert case_requires_protection("property_real_estate", True) is True
+
+
+@pytest.mark.asyncio
+async def test_sensitive_external_provider_is_blocked_even_when_legacy_opt_in_is_enabled():
+    settings = Settings(
+        llm_provider="gemini", llm_model="test-model", gemini_api_key="",
+        allow_external_llm_for_sensitive=True,
+        allow_external_llm_for_non_sensitive=True,
+    )
+    with pytest.raises(ProviderError, match="sensitive case data"):
+        await LLMOrchestrator(settings).generate_text(
+            "synthetic facts", sensitive=True, user_consent=True, synthetic_demo=True
+        )
