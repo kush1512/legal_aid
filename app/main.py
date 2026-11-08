@@ -178,9 +178,11 @@ def can_use_external_llm(
     """API-boundary policy; synthetic demos additionally require an allowlisted user."""
     if sensitive or not consent:
         return False
+    if not settings.allow_external_llm_for_non_sensitive:
+        return False
     if synthetic_demo:
         return can_use_external_synthetic_ai(user, True, consent)
-    return settings.allow_external_llm_for_non_sensitive
+    return True
 
 def official_escalation_for_case(category: str, text: str) -> dict[str, Any] | None:
     """Deterministic escalation guidance for known urgent India-specific situations."""
