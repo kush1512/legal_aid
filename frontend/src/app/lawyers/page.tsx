@@ -7,7 +7,11 @@ import { CATEGORIES, INDIAN_STATES, LANGUAGES, categoryShort, languageLabel } fr
 import { isMock } from "@/lib/config";
 import { useAsync } from "@/lib/hooks/useAsync";
 import { LAWYER_EXTRAS } from "@/lib/mock/demo-extras";
+import { SEED_LAWYERS } from "@/lib/mock/data";
 import { Badge, EmptyState, ErrorState, Field, LoadingBlock, Notice, PageHeader, inputCls } from "@/components/ui";
+
+const DEMO_LAWYER_IDS = new Set(SEED_LAWYERS.map((lawyer) => lawyer.id));
+const isDemoLawyer = (lawyer: Lawyer) => DEMO_LAWYER_IDS.has(lawyer.id);
 
 export default function LawyersPage() {
   const [text, setText] = useState(""); const [category, setCategory] = useState<CaseCategory | "">("");
@@ -15,17 +19,32 @@ export default function LawyersPage() {
   const [jurisdiction, setJurisdiction] = useState(""); const [minYears, setMinYears] = useState(0); const [feesOnly, setFeesOnly] = useState(false);
   const res = useAsync(() => api.listLawyers({ category: category || undefined, state: state || undefined, city: city.trim() || undefined, language: language || undefined, limit: 100 }), [category, state, city, language]);
 
-  const items = useMemo(() => (res.data?.items ?? []).filter((l) => {
-    const t = text.trim().toLowerCase();
-    if (t && !`${l.display_name} ${l.bio ?? ""} ${l.city ?? ""}`.toLowerCase().includes(t)) return false;
-    if (jurisdiction && !l.jurisdictions.some((j) => j.toLowerCase().includes(jurisdiction.toLowerCase()))) return false;
-    if (isMock) { const x = LAWYER_EXTRAS[l.id]; if (minYears && (x?.experience_years ?? 0) < minYears) return false; if (feesOnly && !x?.fee_note) return false; }
-    return true;
-  }), [res.data, text, jurisdiction, minYears, feesOnly]);
+  const items = useMemo(() => {
+    const backendItems = res.data?.items ?? [];
+    // Keep demo personas client-side: never insert them into or represent them as backend lawyer records.
+    const candidates = isMock
+      ? backendItems
+      : [...backendItems, ...SEED_LAWYERS.filter((demo) => !backendItems.some((lawyer) => lawyer.id === demo.id))];
+
+    return candidates.filter((l) => {
+      const t = text.trim().toLowerCase();
+      if (t && !`${l.display_name} ${l.bio ?? ""} ${l.city ?? ""}`.toLowerCase().includes(t)) return false;
+      if (category && !l.practice_areas.includes(category)) return false;
+      if (state && l.state?.toLowerCase() !== state.toLowerCase()) return false;
+      if (city.trim() && !l.city?.toLowerCase().includes(city.trim().toLowerCase())) return false;
+      if (language && !l.languages.includes(language)) return false;
+      if (jurisdiction && !l.jurisdictions.some((j) => j.toLowerCase().includes(jurisdiction.toLowerCase()))) return false;
+      if (isMock) { const x = LAWYER_EXTRAS[l.id]; if (minYears && (x?.experience_years ?? 0) < minYears) return false; if (feesOnly && !x?.fee_note) return false; }
+      return true;
+    });
+  }, [res.data, text, category, state, city, language, jurisdiction, minYears, feesOnly]);
+
+  const demoCount = items.filter(isDemoLawyer).length;
+  const backendCount = items.length - demoCount;
 
   return (
     <>
-      <PageHeader title="Find a lawyer" subtitle={isMock ? "Synthetic demonstration profiles only. These are fictional personas, not real lawyers, and their credentials have not been verified." : "Only lawyers whose credentials have been verified are listed. Browsing doesn’t share anything about your case."} />
+      <PageHeader title="Find a lawyer" subtitle={isMock ? "Synthetic demonstration profiles only. These are fictional personas, not real lawyers, and their credentials have not been verified." : "Backend lawyer records and clearly labelled fictional demo profiles are shown separately. Browsing doesn’t share anything about your case."} />
       <form role="search" onSubmit={(e) => e.preventDefault()} className="mb-5 space-y-3 rounded-xl2 border border-navy/10 bg-white p-4 shadow-card">
         <Field id="ltxt" label="Search by name or keyword"><div className="relative"><Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-navy/50" aria-hidden /><input id="ltxt" className={`${inputCls} pl-9`} value={text} onChange={(e) => setText(e.target.value)} /></div></Field>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -39,11 +58,11 @@ export default function LawyersPage() {
         </div>
         <label className="flex items-center gap-2 text-sm"><input type="checkbox" className="h-4 w-4 accent-teal-600" disabled={!isMock} checked={feesOnly} onChange={(e) => setFeesOnly(e.target.checked)} />Only show lawyers who disclose fees{!isMock && <span className="text-xs text-navy/60"> (not provided by the API yet)</span>}</label>
       </form>
-      {isMock && <Notice tone="mock" className="mb-4">Experience, fees and recommendations on this page are demonstration data.</Notice>}
+      <Notice tone="mock" className="mb-4">{isMock ? "Experience, fees and recommendations on this page are demonstration data." : "Demo profiles are fictional UI examples, not real or verified lawyers. They are stored only in the frontend and are not sent to the backend."}</Notice>
 
       {res.loading ? <LoadingBlock rows={3} /> : res.error ? <ErrorState error={res.error} onRetry={res.reload} /> : items.length === 0 ? <EmptyState icon={Users} title="No lawyers match">Try widening your filters, such as removing the city or language.</EmptyState> : (
         <>
-          <p className="mb-2 text-sm text-navy/70" aria-live="polite">{items.length} {isMock ? "synthetic demo profiles" : `verified ${items.length === 1 ? "lawyer" : "lawyers"}`}</p>
+          <p className="mb-2 text-sm text-navy/70" aria-live="polite">{backendCount} backend {backendCount === 1 ? "profile" : "profiles"} · {demoCount} demo {demoCount === 1 ? "profile" : "profiles"}</p>
           <ul className="space-y-3">{items.map((l) => <LawyerCard key={l.id} l={l} />)}</ul>
         </>)}
     </>
@@ -51,18 +70,19 @@ export default function LawyersPage() {
 }
 
 function LawyerCard({ l }: { l: Lawyer }) {
-  const x = isMock ? LAWYER_EXTRAS[l.id] : undefined;
+  const demo = isDemoLawyer(l);
+  const x = demo ? LAWYER_EXTRAS[l.id] : undefined;
   return (
     <li><Link href={`/lawyers/${l.id}`} className="block rounded-xl2 border border-navy/10 bg-white p-4 shadow-card hover:border-teal/60">
-      <div className="flex flex-wrap items-center gap-2"><h3 className="font-display text-lg font-semibold">{l.display_name}</h3>{isMock ? <Badge tone="amber">Synthetic demo · not verified</Badge> : l.verification_status === "verified" && <Badge tone="teal" icon={BadgeCheck}>Verified</Badge>}</div>
+      <div className="flex flex-wrap items-center gap-2"><h3 className="font-display text-lg font-semibold">{l.display_name}</h3>{demo ? <Badge tone="amber">Demo · fictional · not verified</Badge> : l.verification_status === "verified" && <Badge tone="teal" icon={BadgeCheck}>Verified</Badge>}</div>
       <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-navy/80">
         {(l.city || l.state) && <span className="inline-flex items-center gap-1"><MapPin className="h-3.5 w-3.5" aria-hidden />{[l.city, l.state].filter(Boolean).join(", ")}</span>}
         <span>{l.languages.map(languageLabel).join(", ")}</span>
-        {x && <span>{x.experience_years} yrs experience</span>}
+        {x && <span>{x.experience_years} yrs experience · demo</span>}
       </p>
       <div className="mt-2 flex flex-wrap gap-1.5">{l.practice_areas.map((a) => <Badge key={a} tone="mist">{categoryShort(a)}</Badge>)}</div>
       {l.bio && <p className="mt-2 line-clamp-2 text-sm text-navy/85">{l.bio}</p>}
-      {x && <p className="mt-2 text-xs text-navy/70">{x.fee_note} · {x.friend_recommendations} recommendations from your network (demo)</p>}
+      {x && <p className="mt-2 text-xs text-navy/70">{x.fee_note} · {x.friend_recommendations} recommendations (demo data)</p>}
     </Link></li>
   );
 }

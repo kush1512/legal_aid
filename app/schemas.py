@@ -29,6 +29,13 @@ class CaseCreateRequest(BaseModel):
     jurisdiction: Jurisdiction = Field(default_factory=Jurisdiction)
     preferred_language: str = Field(default="en", max_length=20)
     synthetic_demo: bool = False
+    sensitive: bool | None = None
+
+class CaseSensitivityUpdateRequest(BaseModel):
+    sensitive: bool
+
+class PrivateConversationUpdateRequest(BaseModel):
+    private_conversation: bool
 
 class MessageCreateRequest(BaseModel):
     content: str = Field(min_length=1, max_length=12000)
@@ -46,6 +53,7 @@ class CaseOut(BaseModel):
     preferred_language: str
     sensitive: bool
     synthetic_demo: bool = False
+    private_conversation: bool = False
     created_at: datetime
     updated_at: datetime
     latest_message_at: datetime | None = None

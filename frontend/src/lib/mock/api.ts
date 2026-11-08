@@ -87,7 +87,7 @@ export const mockApi: LegalAidApi = {
     const c: T.Case = {
       id, title: req.title || req.description.trim().split("\n")[0].slice(0, 120), category: req.category, status: "intake",
       jurisdiction: req.jurisdiction ?? { country: "IN" }, preferred_language: req.preferred_language ?? "en",
-      sensitive: req.sensitive ?? true, created_at: t, updated_at: t, latest_message_at: t,
+      sensitive: req.sensitive ?? (req.category === "personal_safety_privacy"), synthetic_demo: req.synthetic_demo ?? false, created_at: t, updated_at: t, latest_message_at: t,
     };
     const initial: T.CaseMessage = { id: uid(), case_id: id, role: "user", content: req.description, created_at: t, ai_metadata: null };
     s.cases.unshift(c); s.messages[id] = [initial]; persist();
@@ -104,6 +104,23 @@ export const mockApi: LegalAidApi = {
     await wait(200);
     const c = state().cases.find((x) => x.id === id);
     if (!c) throw notFound("Case");
+    return { case: c };
+  },
+  async updateCasePrivacy(id, privateConversation) {
+    await wait(150);
+    const c = state().cases.find((x) => x.id === id);
+    if (!c) throw notFound("Case");
+    c.private_conversation = privateConversation;
+    persist();
+    return { case: c };
+  },
+  async updateCaseSensitivity(id, sensitive) {
+    await wait(150);
+    const c = state().cases.find((x) => x.id === id);
+    if (!c) throw notFound("Case");
+    c.sensitive = sensitive;
+    c.updated_at = now();
+    persist();
     return { case: c };
   },
   async sendMessage(id, req) {
@@ -146,6 +163,18 @@ export const mockApi: LegalAidApi = {
     const a = state().assessments[id];
     if (!a) throw new ApiError(404, "ASSESSMENT_NOT_FOUND", "No completed assessment is available yet.");
     return { assessment: a };
+  },
+  async generateAssessment(id) {
+    await wait(500);
+    const s = state();
+    const c = s.cases.find((item) => item.id === id);
+    if (!c) throw notFound("Case");
+    const assessment = buildAssessment(c, s.messages[id] ?? [], null);
+    s.assessments[id] = assessment;
+    c.status = "analysed";
+    c.updated_at = assessment.generated_at;
+    persist();
+    return { assessment };
   },
   async listCaseDocuments(id) {
     await wait(200);

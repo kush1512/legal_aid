@@ -23,7 +23,7 @@ from app.legal_rag import hybrid_legal_search, verify_indexed_source, get_provis
 from app.legal_verification import list_pending_documents, get_document_review_detail, review_document
 from app.llm import LLMOrchestrator, ProviderError
 from app.schemas import (
-    CaseCreateRequest, CaseCreateResponse, CaseListResponse, CaseOut, CaseStatus, AssessmentGenerateRequest,
+    CaseCreateRequest, CaseCreateResponse, CaseListResponse, CaseOut, CaseStatus, AssessmentGenerateRequest, PrivateConversationUpdateRequest, CaseSensitivityUpdateRequest,
     CommunityCommentCreateRequest, PostVoteRequest,
     MessageCreateRequest, MessageCreateResponse, MessageOut,
     LegalSearchRequest, LegalSearchResponse, LegalSearchItem, CitationOut,
@@ -34,6 +34,7 @@ from app.schemas import (
 )
 from app.security import get_current_user
 from app.storage import Storage, utcnow
+from app.case_builder import build_case_summary
 from app.speech import GroqWhisperProvider
 
 settings = get_settings()
@@ -77,7 +78,7 @@ app = FastAPI(
 )
 app.add_middleware(
     CORSMiddleware, allow_origins=settings.cors_origin_list,
-    allow_credentials=True, allow_methods=["GET","POST","OPTIONS"],
+    allow_credentials=True, allow_methods=["GET","POST","PATCH","OPTIONS"],
     allow_headers=["Authorization","Content-Type","X-Dev-User-ID","X-Request-ID"]
 )
 app.add_middleware(RateLimitMiddleware, max_requests=settings.rate_limit_requests,
@@ -147,6 +148,7 @@ def to_case_out(row: dict) -> dict:
         "status":row["status"],"jurisdiction":row.get("jurisdiction") or {"country":"IN"},
         "preferred_language":row.get("preferred_language","en"),
         "sensitive":row.get("sensitive",True),"synthetic_demo":row.get("synthetic_demo",False),
+        "private_conversation":row.get("private_conversation",False),
         "created_at":row["created_at"],
         "updated_at":row.get("updated_at",row["created_at"]),
         "latest_message_at":row.get("latest_message_at")
@@ -157,16 +159,37 @@ def is_allowlisted_synthetic_user(user: dict) -> bool:
 
 def can_use_external_synthetic_ai(user: dict, synthetic_demo: bool, consent: bool) -> bool:
     return bool(
-        synthetic_demo
-        and consent
-        and settings.allow_external_llm_for_synthetic
+        synthetic_demo and consent and settings.allow_external_llm_for_synthetic
         and is_allowlisted_synthetic_user(user)
     )
+
+
+def contains_sensitive_identifiers(text: str) -> bool:
+    patterns = (
+        r"\b[6-9]\d{9}\b",
+        r"\b\d{4}\s?\d{4}\s?\d{4}\b",
+        r"\b[A-Z]{5}\d{4}[A-Z]\b",
+        r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b",
+        r"\b\d{9,18}\b",
+        r"\b[A-Z0-9._-]+@[A-Z]{2,}\b",
+    )
+    return any(re.search(pattern, text, re.IGNORECASE) for pattern in patterns)
+
+
+def case_requires_protection(
+    category: str,
+    user_marked_sensitive: bool | None
+) -> bool:
+    """Apply the category default unless the user explicitly overrides it."""
+    if user_marked_sensitive is not None:
+        return user_marked_sensitive
+    return category == "personal_safety_privacy"
 
 
 def case_contains_private_data(case: dict) -> bool:
     return bool(
         case.get("sensitive", True)
+        or case.get("private_conversation", False)
         or case.get("private", False)
         or case.get("is_private", False)
     )
@@ -175,14 +198,10 @@ def case_contains_private_data(case: dict) -> bool:
 def can_use_external_llm(
     user: dict, *, sensitive: bool, synthetic_demo: bool, consent: bool
 ) -> bool:
-    """API-boundary policy; synthetic demos additionally require an allowlisted user."""
+    """Allow external AI only for non-sensitive cases with explicit consent."""
     if sensitive or not consent:
         return False
-    if not settings.allow_external_llm_for_non_sensitive:
-        return False
-    if synthetic_demo:
-        return can_use_external_synthetic_ai(user, True, consent)
-    return True
+    return settings.allow_external_llm_for_non_sensitive
 
 def official_escalation_for_case(category: str, text: str) -> dict[str, Any] | None:
     """Deterministic escalation guidance for known urgent India-specific situations."""
@@ -317,6 +336,10 @@ async def transcribe_audio(
     if case_id:
         case=await storage.get_case(user,case_id)
         synthetic_demo=bool(case.get("synthetic_demo",False))
+        if case.get("private_conversation",False) or case.get("sensitive",True):
+            raise HTTPException(403,{"code":"PRIVACY_GATE_BLOCKED",
+                                     "message":"Voice transcription is blocked for private or sensitive cases. Use text input instead.",
+                                     "details":[]})
     if not can_use_external_synthetic_ai(user,synthetic_demo,external_ai_consent):
         raise HTTPException(403,{"code":"PRIVACY_GATE_BLOCKED",
                                  "message":"External speech transcription is available only for allowlisted synthetic demonstration cases with explicit consent. Use text input for real cases.",
@@ -336,14 +359,31 @@ async def transcribe_audio(
 
 @app.get("/api/v1/health", tags=["system"])
 async def health():
+    provider = settings.llm_provider
+    provider_key_configured = {
+        "mock": True,
+        "groq": bool(settings.groq_api_key),
+        "gemini": bool(settings.gemini_api_key),
+        "openai": bool(settings.openai_api_key),
+        "anthropic": bool(settings.anthropic_api_key),
+    }.get(provider, False)
     return {
         "status":"ok","version":settings.app_version,"environment":settings.app_env,
         "dependencies":{
             "database":"development_memory" if storage.is_mock else (
                 "configured" if settings.supabase_url and settings.effective_supabase_publishable_key else "not_configured"
             ),
-            "llm":"mock" if settings.llm_provider=="mock" else "configured",
+            "llm":"mock" if provider=="mock" else ("configured" if provider_key_configured else "missing_credentials"),
             "embeddings":settings.embedding_provider
+        },
+        "llm_config":{
+            "provider":provider,
+            "model":settings.llm_model,
+            "provider_key_configured":provider_key_configured,
+            "fallback_enabled":bool(settings.llm_fallback_enabled and settings.fallback_llm_provider),
+            "fallback_provider":settings.fallback_llm_provider or None,
+            "external_non_sensitive_enabled":settings.allow_external_llm_for_non_sensitive,
+            "external_sensitive_enabled":settings.allow_external_llm_for_sensitive,
         }
     }
 
@@ -359,7 +399,8 @@ async def create_case(payload: CaseCreateRequest, user: dict=Depends(get_current
         "user_id":user["id"],"title":title,"category":payload.category.value,
         "status":"intake","jurisdiction":payload.jurisdiction.model_dump(exclude_none=True),
         "preferred_language":payload.preferred_language,
-        "synthetic_demo":synthetic_demo,"sensitive":not synthetic_demo
+        "synthetic_demo":synthetic_demo,"sensitive":case_requires_protection(payload.category.value,payload.sensitive),
+        "private_conversation":False
     })
     message=await storage.insert("case_messages",user,{
         "case_id":row["id"],"user_id":user["id"],"role":"user",
@@ -378,6 +419,35 @@ async def list_cases(limit: int=Query(20,ge=1,le=100),offset: int=Query(0,ge=0),
 async def get_case(case_id: UUID,user: dict=Depends(get_current_user)):
     row=await storage.get_case(user,str(case_id))
     return {"case":to_case_out(row)}
+
+@app.patch("/api/v1/cases/{case_id}/privacy",tags=["cases"])
+async def update_case_privacy(case_id: UUID, payload: PrivateConversationUpdateRequest,
+                              user: dict=Depends(get_current_user)):
+    await storage.get_case(user,str(case_id))
+    row=await storage.update_case_privacy(user,str(case_id),payload.private_conversation)
+    return {"case":to_case_out(row)}
+
+
+@app.patch("/api/v1/cases/{case_id}/sensitivity",tags=["cases"])
+async def update_case_sensitivity(case_id: UUID, payload: CaseSensitivityUpdateRequest,
+                                  user: dict=Depends(get_current_user)):
+    await storage.get_case(user,str(case_id))
+    row=await storage.update_case_sensitivity(user,str(case_id),payload.sensitive)
+    return {"case":to_case_out(row)}
+
+
+@app.get("/api/v1/cases/{case_id}/case-builder", tags=["cases"])
+async def get_case_builder(case_id: UUID, user: dict=Depends(get_current_user)):
+    """Return a deterministic, editable case-building view from user-authored messages."""
+    case = await storage.get_case(user, str(case_id))
+    messages = await storage.list_messages(user, str(case_id))
+    summary = build_case_summary(
+        messages,
+        case["category"],
+        case.get("jurisdiction") or {"country": "IN"},
+    )
+    return {"case_id": str(case_id), "case_builder": summary}
+
 
 @app.get("/api/v1/cases/{case_id}/messages",tags=["cases"])
 async def get_case_messages(
@@ -401,19 +471,30 @@ async def add_case_message(case_id: UUID,payload: MessageCreateRequest,user: dic
     conversation="\n".join(f'{m["role"]}: {m["content"]}' for m in history[-12:])
     escalation=official_escalation_for_case(case["category"],payload.content)
     prompt=(
-        "You are the intake assistant for Legal Aid, an Indian legal information platform. "
+        "You are a conversational legal-intake assistant for Legal Aid, an Indian legal information platform. "
+        "This is an ongoing multi-turn conversation, not a one-shot form. Read the entire conversation in order "
+        "and respond specifically to the latest user message while remembering all earlier answers. "
+        "Start with a brief, natural acknowledgement of the latest information. Then ask one clear, specific "
+        "next question that obtains the most important missing fact. Do not repeat a question already answered "
+        "or ask for a generic bundle of dates, documents and steps. Ask about only one topic at a time. "
+        "If the latest message already answers the previous question, acknowledge that answer and move to the "
+        "next unresolved issue. If the user asks a question, answer briefly within the intake scope before asking "
+        "the next relevant question. Do not claim the intake is complete while material facts remain unknown. "
+        "When enough facts are available, say that the intake is sufficiently complete and that a structured "
+        "assessment can now be generated; set case_status to analysed and leave follow_up_questions empty. "
+        "Otherwise set case_status to needs_information and put the single next question in follow_up_questions. "
+        "The assistant_reply must always be newly composed for this turn; never use a static fallback sentence. "
         "Understand facts; do not provide a legal conclusion in this intake step. Never invent facts. "
         "Mark user statements as user_provided, and label any inference explicitly. For each extracted fact, "
         "include an exact evidence_quote copied verbatim from a user-authored message; if you cannot quote "
         "an exact span, set evidence_quote to null. The server independently validates the quote and ignores "
-        "the model source and verified labels. Ask only the most "
-        "important missing questions. Detect imminent danger or urgent safety risk and flag it. "
+        "the model source and verified labels. Detect imminent danger or urgent safety risk and flag it. "
         "Do not cite laws or sections unless separately verified by the legal knowledge base. "
         "If there is immediate physical danger, prioritize emergency safety guidance over legal analysis. "
         "For India, the official emergency response number is 112; for online financial fraud the official "
-        "helpline is 1930. Return fields exactly according to the JSON schema.\n"
+        "helpline is 1930. Return every field exactly according to the JSON schema.\n"
         f"Case category: {case['category']}\nJurisdiction: {case.get('jurisdiction')}\n"
-        f"Conversation:\n{conversation}"
+        f"Conversation (oldest to newest; the final user entry is the message to answer now):\n{conversation}"
     )
     actual_synthetic_demo=bool(case.get("synthetic_demo",False))
     case_sensitive=case_contains_private_data(case)
@@ -421,7 +502,13 @@ async def add_case_message(case_id: UUID,payload: MessageCreateRequest,user: dic
         user,sensitive=case_sensitive,synthetic_demo=actual_synthetic_demo,
         consent=payload.external_ai_consent
     )
-    blocked=(settings.llm_provider!="mock" and not external_processing_allowed)
+    blocked = (
+        settings.llm_provider != "mock"
+        and (
+            not external_processing_allowed
+            or bool(case.get("private_conversation", False))
+        )
+    )
     if blocked:
         reply=(
             "This case is marked sensitive. No external AI provider was contacted. "
@@ -540,7 +627,10 @@ async def generate_case_assessment(
         user,sensitive=case_sensitive,synthetic_demo=actual_synthetic_demo,
         consent=payload.external_ai_consent
     )
-    if settings.llm_provider!="mock" and not external_processing_allowed:
+    if settings.llm_provider != "mock" and (
+        not external_processing_allowed
+        or bool(case.get("private_conversation", False))
+    ):
         raise HTTPException(403,{"code":"PRIVACY_GATE_BLOCKED",
                                  "message":"External assessment is disabled for real cases. Use the mock provider or an approved synthetic demo account.",
                                  "details":[]})
@@ -921,16 +1011,25 @@ async def generate_document(payload: DocumentGenerateRequest,user: dict=Depends(
             if exc.status_code != 503:
                 raise
             logger.warning("draft_knowledge_base_unavailable case_id=%s",str(payload.case_id))
+    if case:
+        sensitive = case_contains_private_data(case)
 
-    sensitive=bool(sensitive or (case and case_contains_private_data(case)))
-    external_processing_allowed=can_use_external_llm(
-        user,sensitive=sensitive,synthetic_demo=synthetic_demo,
+    external_processing_allowed = can_use_external_llm(
+        user,
+        sensitive=sensitive,
+        synthetic_demo=synthetic_demo,
         consent=payload.external_ai_consent
     )
-    if settings.llm_provider!="mock" and not external_processing_allowed:
-        raise HTTPException(403,{"code":"PRIVACY_GATE_BLOCKED",
-                                 "message":"External drafting is disabled for real cases. Use the mock provider or an approved synthetic demo account.",
-                                 "details":[]})
+
+    if settings.llm_provider != "mock" and not external_processing_allowed:
+        raise HTTPException(
+            403,
+            {
+                "code": "PRIVACY_GATE_BLOCKED",
+                "message": "External drafting is blocked by this case's privacy settings or missing consent.",
+                "details": []
+            }
+        )
 
     source_context=[
         {

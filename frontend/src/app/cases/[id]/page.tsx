@@ -14,9 +14,11 @@ import { AssessmentView } from "@/components/AssessmentView";
 import { Badge, Button, EmptyState, ErrorState, LoadingBlock, Notice, ProgressBar, Tabs, inputCls } from "@/components/ui";
 import { ConsentCheckbox, MockAiBadge, VoiceRecorder } from "@/components/domain";
 import { useApp } from "@/components/AppProvider";
+import { CaseSupportPanel } from "@/components/CaseSupportPanel";
 
 type Tab = "assessment" | "conversation" | "timeline" | "documents";
 const REVIEW_PROMPT = "Please review my description and tell me what else you need to know.";
+const NEXT_STEPS_PROMPT = "Based only on the facts I have shared in this case, give me a prioritised, practical action plan for what I should do next under Indian law. Separate immediate steps (today/next 48 hours), steps for the next 7 days, and later options. For each step, explain what to do, where or with whom to do it, what evidence or documents to preserve, and any important deadline or risk. Identify which facts are still missing. Use applicable verified legal sources where available, distinguish general information from legal advice, and do not invent procedures, deadlines, authorities or remedies.";
 
 function CaseDetail() {
   const { id } = useParams<{ id: string }>();
@@ -25,21 +27,27 @@ function CaseDetail() {
   const c = useAsync(() => api.getCase(id), [id]);
   const [tab, setTab] = useState<Tab>((sp.get("tab") as Tab) || "assessment");
   const [messages, setMessages] = useState<CaseMessage[]>([]);
-  const [followUps, setFollowUps] = useState<string[]>([]);
   const [status, setStatus] = useState<string | null>(null);
   const [consent, setConsent] = useState(false);
+  const [consentLoaded, setConsentLoaded] = useState(false);
   const [draft, setDraft] = useState("");
   const [inputMode, setInputMode] = useState<"text" | "voice_transcription">("text");
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<unknown>(null);
+  const [assessmentBusy, setAssessmentBusy] = useState(false);
+  const [privacyBusy, setPrivacyBusy] = useState(false);
+  const [assessmentError, setAssessmentError] = useState<string | null>(null);
   const ranReview = useRef(false);
   const assessment = useAsync(() => api.getAssessment(id), [id, status]);
   const docs = useAsync(() => api.listCaseDocuments(id), [id]);
 
   useEffect(() => {
+    setConsentLoaded(false);
+    ranReview.current = false;
     setMessages(loadTranscript(id));
     const stored = readJson<{ consent?: boolean } | null>(consentKey(id), null, "session");
     setConsent(stored?.consent ?? prefs.defaultExternalAiConsent);
+    setConsentLoaded(true);
   }, [id, prefs.defaultExternalAiConsent]);
 
   const send = useCallback(async (content: string, mode: "text" | "voice_transcription" = "text") => {
@@ -50,7 +58,6 @@ function CaseDetail() {
       const r: SendMessageResponse = await api.sendMessage(id, { content: content.trim(), language: lang, input_mode: mode, external_ai_consent: consent });
       appendToTranscript(id, r.user_message, r.assistant_message);
       setMessages(loadTranscript(id));
-      setFollowUps(r.follow_up_questions);
       setStatus(r.case_status);
       writeJson(consentKey(id), { consent }, "session");
       c.reload();
@@ -62,15 +69,54 @@ function CaseDetail() {
 
   // After intake, ask the assistant to review the description once. Consent was given on the intake form.
   useEffect(() => {
-    if (sp.get("review") === "1" && c.data && !ranReview.current) {
+    if (sp.get("review") === "1" && c.data && consentLoaded && !ranReview.current) {
       ranReview.current = true;
       const hasReply = loadTranscript(id).some((m) => m.role === "assistant");
       if (!hasReply) void send(REVIEW_PROMPT);
       window.history.replaceState(null, "", `/cases/${id}?tab=conversation`);
     }
-  }, [c.data, id, sp, send]);
+  }, [c.data, id, sp, send, consentLoaded]);
+
+  const generateAssessment = useCallback(async () => {
+    setAssessmentBusy(true); setAssessmentError(null);
+    try {
+      await api.generateAssessment(id, { external_ai_consent: consent });
+      setStatus((value) => value === "assessment-refresh" ? "assessment-refresh-2" : "assessment-refresh");
+      await assessment.reload();
+    } catch (error) {
+      setAssessmentError(describeError(error).hint);
+    } finally {
+      setAssessmentBusy(false);
+    }
+  }, [id, consent, assessment]);
 
   const localDocs = useMemo(() => (isMock ? readJson<Array<{ name: string; size: number; at: string }>>(localDocsKey(id), [], "session") : []), [id]);
+
+  const toggleSensitiveCase = useCallback(async () => {
+    if (!c.data) return;
+    setPrivacyBusy(true);
+    try {
+      await api.updateCaseSensitivity(id, !Boolean(c.data.case.sensitive));
+      await c.reload();
+    } catch (error) {
+      setAssessmentError(describeError(error).hint);
+    } finally {
+      setPrivacyBusy(false);
+    }
+  }, [c, id]);
+
+  const togglePrivateConversation = useCallback(async () => {
+    if (!c.data) return;
+    setPrivacyBusy(true);
+    try {
+      await api.updateCasePrivacy(id, !Boolean(c.data.case.private_conversation));
+      await c.reload();
+    } catch (error) {
+      setAssessmentError(describeError(error).hint);
+    } finally {
+      setPrivacyBusy(false);
+    }
+  }, [c, id]);
 
   if (c.loading && !c.data) return <LoadingBlock rows={3} />;
   if (c.error || !c.data) return <><BackLink /><ErrorState error={c.error} onRetry={c.reload} /></>;
@@ -89,6 +135,24 @@ function CaseDetail() {
         </div>
         <h1 className="text-2xl font-semibold sm:text-3xl">{cs.title}</h1>
         <div className="max-w-md"><ProgressBar value={meta.progress} label={`Case progress: ${meta.label}`} /></div>
+        <div className="rounded-xl border border-navy/10 bg-white p-4 shadow-card space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="flex items-center gap-2 text-sm font-semibold"><Lock className="h-4 w-4" aria-hidden />Sensitive case</p>
+              <p className="mt-1 max-w-2xl text-xs text-navy/70">{cs.sensitive ? "On: no external AI provider will receive this case, even if message consent is selected." : "Off: external AI may be used only when you explicitly consent and backend safeguards allow it."}</p>
+            </div>
+            <Button size="sm" variant={cs.sensitive ? "primary" : "secondary"} loading={privacyBusy} onClick={toggleSensitiveCase}>{cs.sensitive ? "Mark as non-sensitive" : "Mark as sensitive"}</Button>
+          </div>
+          <div className="border-t border-navy/10 pt-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="flex items-center gap-2 text-sm font-semibold"><Lock className="h-4 w-4" aria-hidden />Private conversation</p>
+              <p className="mt-1 max-w-2xl text-xs text-navy/70">{cs.private_conversation ? "On: this case will not be sent to an external LLM or speech provider." : "Off: external AI is still blocked for sensitive cases. This setting adds an extra block for every case."}</p>
+            </div>
+            <Button size="sm" variant={cs.private_conversation ? "primary" : "secondary"} loading={privacyBusy} onClick={togglePrivateConversation}>{cs.private_conversation ? "Turn private mode off" : "Turn private mode on"}</Button>
+          </div>
+          </div>
+        </div>
       </header>
 
       <Tabs<Tab> label="Case sections" value={tab} onChange={setTab} tabs={[
@@ -96,17 +160,19 @@ function CaseDetail() {
         { id: "timeline", label: "Timeline" }, { id: "documents", label: "Documents", count: (docs.data?.items.length ?? 0) + localDocs.length || undefined }]} />
 
       <div className="mt-6" role="tabpanel" id={`panel-${tab}`} aria-labelledby={`tab-${tab}`}>
+        {tab === "assessment" && <div className="mb-4 space-y-2"><Button onClick={generateAssessment} loading={assessmentBusy}>Generate detailed assessment</Button>{assessmentError && <Notice tone="danger" title="Assessment could not be generated">{assessmentError}</Notice>}<p className="text-xs text-navy/70">Uses the case conversation and any available verified legal sources. External processing remains subject to the case privacy setting and demo allowlist.</p></div>}
         {tab === "assessment" && (assessment.loading ? <LoadingBlock rows={4} /> :
           assessment.error instanceof ApiError && assessment.error.code === "ASSESSMENT_NOT_FOUND" ?
             <EmptyState title="No assessment yet" action={<Button onClick={() => setTab("conversation")}>Open the conversation</Button>}>The assistant prepares an assessment after reviewing your description. Send a message to begin.</EmptyState> :
           assessment.error ? <ErrorState error={assessment.error} onRetry={assessment.reload} /> :
           assessment.data && <AssessmentView c={cs} a={assessment.data.assessment} onAskMore={() => setTab("conversation")} />)}
+        {tab === "assessment" && <CaseSupportPanel caseInfo={cs} />}
 
         {tab === "conversation" && (
-          <Conversation messages={messages} followUps={followUps} draft={draft} setDraft={setDraft} send={() => send(draft, inputMode)} sending={sending}
+          <Conversation messages={messages} draft={draft} setDraft={setDraft} send={() => send(draft, inputMode)} sendNextSteps={() => send(NEXT_STEPS_PROMPT)} sending={sending}
             sendError={sendError} consent={consent} setConsent={setConsent} sensitive={cs.sensitive} caseId={id}
             onVoice={(t) => { setDraft((d) => (d ? d + "\n" : "") + t); setInputMode("voice_transcription"); }}
-            onReview={() => send(REVIEW_PROMPT)} onPick={(q) => setDraft((d) => (d ? d + "\n" : "") + q + " ")} />
+            onReview={() => send(REVIEW_PROMPT)} />
         )}
 
         {tab === "timeline" && <Timeline createdAt={cs.created_at} messages={messages} assessmentAt={assessment.data?.assessment.generated_at} docs={docs.data?.items ?? []} />}
@@ -136,8 +202,8 @@ function CaseDetail() {
 const BackLink = () => <Link href="/cases" className="mb-4 inline-flex items-center gap-1 text-sm font-semibold text-teal-700"><ArrowLeft className="h-4 w-4" aria-hidden />My cases</Link>;
 
 function Conversation(p: {
-  messages: CaseMessage[]; followUps: string[]; draft: string; setDraft: (s: string) => void; send: () => void; sending: boolean; sendError: unknown;
-  consent: boolean; setConsent: (b: boolean) => void; sensitive: boolean; caseId: string; onVoice: (t: string) => void; onReview: () => void; onPick: (q: string) => void;
+  messages: CaseMessage[]; draft: string; setDraft: (s: string) => void; send: () => void; sendNextSteps: () => void; sending: boolean; sendError: unknown;
+  consent: boolean; setConsent: (b: boolean) => void; sensitive: boolean; caseId: string; onVoice: (t: string) => void; onReview: () => void;
 }) {
   const bottom = useRef<HTMLDivElement>(null);
   useEffect(() => { bottom.current?.scrollIntoView({ block: "end" }); }, [p.messages.length, p.sending]);
@@ -163,17 +229,25 @@ function Conversation(p: {
 
       {!hasReply && p.messages.length > 0 && !p.sending && (
         <Notice tone="info" title="The assistant hasn’t reviewed your description yet"><Button size="sm" className="mt-2" onClick={p.onReview}>Get follow-up questions</Button></Notice>)}
-      {p.followUps.length > 0 && (
-        <div><p className="mb-2 text-sm font-semibold">Suggested questions to answer</p>
-          <ul className="flex flex-wrap gap-2">{p.followUps.map((q) => <li key={q}><button type="button" onClick={() => p.onPick(q)} className="rounded-full border border-teal/40 bg-mist/60 px-3 py-1.5 text-left text-sm hover:bg-mist">{q}</button></li>)}</ul></div>)}
+      {hasReply && !p.sending && (
+        <section className="rounded-xl2 border border-teal/25 bg-white p-4 shadow-card" aria-label="Quick actions">
+          <p className="text-sm font-semibold">What would you like to do next?</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Button size="sm" onClick={p.sendNextSteps} loading={p.sending}>Get next legal steps</Button>
+            <Button size="sm" href="/lawyers" variant="secondary">Contact a lawyer · View profiles</Button>
+            <Button size="sm" href={`/studio?case=${p.caseId}`} variant="secondary">Prepare a document</Button>
+          </div>
+        </section>
+      )}
       {err && <Notice tone="danger" title={err.title}>{err.hint}</Notice>}
 
       <form onSubmit={(e) => { e.preventDefault(); p.send(); }} className="space-y-3 rounded-xl2 border border-navy/10 bg-white p-4 shadow-card">
         <label htmlFor="msg" className="text-sm font-semibold">Add details or answer a question</label>
-        <textarea id="msg" rows={3} className={inputCls} value={p.draft} onChange={(e) => p.setDraft(e.target.value)} maxLength={12000} />
+        <textarea id="msg" rows={3} className={inputCls} value={p.draft} onChange={(e) => p.setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); if (p.draft.trim() && !p.sending) p.send(); } }} maxLength={12000} />
+        <p className="text-xs text-navy/60">Press Enter to send · Shift + Enter for a new line</p>
         <VoiceRecorder caseId={p.caseId} consent={p.consent} onTranscript={p.onVoice} disabled={p.sending} />
         <ConsentCheckbox id="msg-consent" checked={p.consent} onChange={p.setConsent}>
-          Allow an external AI service to process this message.{p.sensitive && <> This case is <strong>sensitive</strong>; without this, no AI service is contacted.</>}
+          Allow an external AI service to process this message.{p.sensitive && <> This case is <strong>sensitive</strong>; no external AI provider will be contacted, even if you tick this.</>}
         </ConsentCheckbox>
         <div className="flex justify-end"><Button type="submit" icon={Send} loading={p.sending} disabled={!p.draft.trim()}>Send message</Button></div>
       </form>

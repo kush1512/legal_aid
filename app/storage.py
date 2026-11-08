@@ -96,6 +96,49 @@ class Storage:
             raise HTTPException(404, "Case not found")
         return row
 
+    async def update_case_privacy(self, user: dict, case_id: str, private_conversation: bool):
+        if self.is_mock:
+            def op():
+                with self._lock:
+                    row=next((x for x in self._memory["cases"] if x["id"]==case_id and x["user_id"]==user["id"]),None)
+                    if row:
+                        row["private_conversation"]=private_conversation
+                        row["updated_at"]=utcnow()
+                    return row.copy() if row else None
+            row=await self._run(op)
+        else:
+            def op():
+                # The API performs an owner-scoped read before this server-controlled update.
+                result=self._service_client().table("cases").update(
+                    {"private_conversation":private_conversation,"updated_at":utcnow()}
+                ).eq("id",case_id).eq("user_id",user["id"]).execute()
+                return result.data[0] if result.data else None
+            row=await self._run(op)
+        if row is None:
+            raise HTTPException(404,"Case not found")
+        return row
+
+    async def update_case_sensitivity(self, user: dict, case_id: str, sensitive: bool):
+        if self.is_mock:
+            def op():
+                with self._lock:
+                    row=next((x for x in self._memory["cases"] if x["id"]==case_id and x["user_id"]==user["id"]),None)
+                    if row:
+                        row["sensitive"]=sensitive
+                        row["updated_at"]=utcnow()
+                    return row.copy() if row else None
+            row=await self._run(op)
+        else:
+            def op():
+                result=self._service_client().table("cases").update(
+                    {"sensitive":sensitive,"updated_at":utcnow()}
+                ).eq("id",case_id).eq("user_id",user["id"]).execute()
+                return result.data[0] if result.data else None
+            row=await self._run(op)
+        if row is None:
+            raise HTTPException(404,"Case not found")
+        return row
+
     async def insert(self, table: str, user: dict, row: dict):
         row = {"id": str(uuid4()), "created_at": utcnow(), **row}
         if self.is_mock:

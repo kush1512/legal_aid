@@ -9,7 +9,7 @@ def test_case_intake_and_assessment_flow(client,auth_headers):
     assert created.status_code==201,created.text
     case=created.json()["case"]
     case_id=case["id"]
-    assert case["sensitive"] is True
+    assert case["sensitive"] is False
     assert case["synthetic_demo"] is False
 
     message=client.post(f"/api/v1/cases/{case_id}/messages",headers=auth_headers,json={
@@ -104,3 +104,51 @@ def test_preliminary_document_draft_is_marked_for_review_and_does_not_invent_sou
     assert draft["review_required"] is True
     assert draft["citations"]==[]
     assert draft["model"]["is_mock"] is True
+
+
+def test_case_private_conversation_can_be_enabled_and_disabled(client,auth_headers):
+    created=client.post("/api/v1/cases",headers=auth_headers,json={
+        "category":"property_real_estate",
+        "description":"A non-sensitive test description without personal identifiers.",
+        "sensitive":False
+    })
+    assert created.status_code==201,created.text
+    case_id=created.json()["case"]["id"]
+    enabled=client.patch(f"/api/v1/cases/{case_id}/privacy",headers=auth_headers,json={
+        "private_conversation":True
+    })
+    assert enabled.status_code==200,enabled.text
+    assert enabled.json()["case"]["private_conversation"] is True
+    disabled=client.patch(f"/api/v1/cases/{case_id}/privacy",headers=auth_headers,json={
+        "private_conversation":False
+    })
+    assert disabled.status_code==200,disabled.text
+    assert disabled.json()["case"]["private_conversation"] is False
+
+
+def test_sensitive_category_and_personal_identifiers_are_protected(client, auth_headers):
+    # Marriage/family is non-sensitive by default and explicit false is respected.
+    family = client.post("/api/v1/cases", headers=auth_headers, json={
+        "category": "marriage_family",
+        "description": "A family matter requiring confidential guidance.",
+        "sensitive": False
+    })
+    assert family.status_code == 201
+    assert family.json()["case"]["sensitive"] is False
+
+    # Personal identifiers do not override an explicit user choice.
+    pii = client.post("/api/v1/cases", headers=auth_headers, json={
+        "category": "property_real_estate",
+        "description": "My contact number is 9876543210 and I need help.",
+        "sensitive": False
+    })
+    assert pii.status_code == 201
+    assert pii.json()["case"]["sensitive"] is False
+
+    # Personal safety/privacy defaults to sensitive when no choice is supplied.
+    safety = client.post("/api/v1/cases", headers=auth_headers, json={
+        "category": "personal_safety_privacy",
+        "description": "I need confidential guidance."
+    })
+    assert safety.status_code == 201
+    assert safety.json()["case"]["sensitive"] is True

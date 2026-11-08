@@ -31,78 +31,130 @@ def make_settings(**overrides):
 
 
 @pytest.mark.asyncio
-async def test_synthetic_demo_blocked_when_synthetic_permission_disabled(monkeypatch):
-    orchestrator = LLMOrchestrator(make_settings(
-        allow_external_llm_for_synthetic=False,
-        allow_external_llm_for_non_sensitive=True,
-    ))
+async def test_sensitive_payload_is_blocked_before_provider_initialization(monkeypatch):
+    orchestrator = LLMOrchestrator(make_settings())
     initialized = []
-    monkeypatch.setattr(orchestrator, "_provider", lambda name: initialized.append(name))
-    with pytest.raises(ProviderError, match="synthetic demonstration"):
+    monkeypatch.setattr(
+        orchestrator, "_provider",
+        lambda name: initialized.append(name)
+    )
+
+    with pytest.raises(ProviderError, match="sensitive case data"):
         await orchestrator.generate_text(
-            "synthetic facts", sensitive=False, user_consent=True, synthetic_demo=True
+            "synthetic placeholder",
+            sensitive=True,
+            user_consent=True,
         )
+
     assert initialized == []
 
 
 @pytest.mark.asyncio
-async def test_synthetic_demo_with_all_permissions_reaches_provider_initialization(monkeypatch):
-    orchestrator = LLMOrchestrator(make_settings(allow_external_llm_for_synthetic=True))
-    initialized = []
-    monkeypatch.setattr(orchestrator, "_provider", lambda name: initialized.append(name) or FakeExternalProvider())
-    generation = await orchestrator.generate_text(
-        "synthetic facts", sensitive=False, user_consent=True, synthetic_demo=True
+async def test_mock_provider_can_process_sensitive_development_case():
+    settings = make_settings(llm_provider="mock")
+    generation = await LLMOrchestrator(settings).generate_text(
+        "synthetic facts",
+        sensitive=True,
+        user_consent=False,
     )
-    assert initialized == ["gemini"]
-    assert generation.provider == "fake-external"
+
+    assert generation.is_mock is True
+    assert generation.provider == "mock"
 
 
 @pytest.mark.asyncio
-async def test_non_synthetic_non_sensitive_case_is_permitted(monkeypatch):
+async def test_non_sensitive_case_requires_explicit_consent(monkeypatch):
     orchestrator = LLMOrchestrator(make_settings())
     initialized = []
-    monkeypatch.setattr(orchestrator, "_provider", lambda name: initialized.append(name) or FakeExternalProvider())
-    generation = await orchestrator.generate_text(
-        "non-sensitive facts", sensitive=False, user_consent=True, synthetic_demo=False
+    monkeypatch.setattr(
+        orchestrator, "_provider",
+        lambda name: initialized.append(name)
     )
-    assert initialized == ["gemini"]
-    assert generation.provider == "fake-external"
 
-
-@pytest.mark.asyncio
-async def test_non_sensitive_case_without_consent_is_blocked_before_initialization(monkeypatch):
-    orchestrator = LLMOrchestrator(make_settings())
-    initialized = []
-    monkeypatch.setattr(orchestrator, "_provider", lambda name: initialized.append(name))
     with pytest.raises(ProviderError, match="explicit user consent"):
         await orchestrator.generate_text(
-            "facts", sensitive=False, user_consent=False, synthetic_demo=False
+            "non-sensitive facts",
+            sensitive=False,
+            user_consent=False,
         )
+
     assert initialized == []
 
 
 @pytest.mark.asyncio
-async def test_sensitive_case_with_consent_is_always_blocked(monkeypatch):
-    orchestrator = LLMOrchestrator(make_settings(allow_external_llm_for_sensitive=True))
+async def test_non_sensitive_case_requires_global_permission(monkeypatch):
+    orchestrator = LLMOrchestrator(
+        make_settings(allow_external_llm_for_non_sensitive=False)
+    )
     initialized = []
-    monkeypatch.setattr(orchestrator, "_provider", lambda name: initialized.append(name))
-    with pytest.raises(ProviderError, match="sensitive or private"):
+    monkeypatch.setattr(
+        orchestrator, "_provider",
+        lambda name: initialized.append(name)
+    )
+
+    with pytest.raises(ProviderError, match="disabled for non-sensitive"):
         await orchestrator.generate_text(
-            "private case facts", sensitive=True, user_consent=True, synthetic_demo=False
+            "non-sensitive facts",
+            sensitive=False,
+            user_consent=True,
         )
+
     assert initialized == []
 
 
 @pytest.mark.asyncio
-async def test_private_conversation_is_blocked(monkeypatch):
+async def test_non_sensitive_case_is_permitted_with_consent(monkeypatch):
     orchestrator = LLMOrchestrator(make_settings())
     initialized = []
-    monkeypatch.setattr(orchestrator, "_provider", lambda name: initialized.append(name))
-    with pytest.raises(ProviderError, match="sensitive or private"):
+    monkeypatch.setattr(
+        orchestrator, "_provider",
+        lambda name: initialized.append(name) or FakeExternalProvider()
+    )
+
+    generation = await orchestrator.generate_text(
+        "non-sensitive facts",
+        sensitive=False,
+        user_consent=True,
+    )
+
+    assert initialized == ["gemini"]
+    assert generation.provider == "fake-external"
+
+
+@pytest.mark.asyncio
+async def test_synthetic_case_uses_same_non_sensitive_policy(monkeypatch):
+    orchestrator = LLMOrchestrator(
+        make_settings(allow_external_llm_for_synthetic=False)
+    )
+    initialized = []
+    monkeypatch.setattr(
+        orchestrator, "_provider",
+        lambda name: initialized.append(name) or FakeExternalProvider()
+    )
+
+    generation = await orchestrator.generate_text(
+        "synthetic facts",
+        sensitive=False,
+        user_consent=True,
+        synthetic_demo=True,
+    )
+
+    assert initialized == ["gemini"]
+    assert generation.provider == "fake-external"
+
+
+@pytest.mark.asyncio
+async def test_sensitive_case_is_blocked_even_with_legacy_sensitive_opt_in():
+    orchestrator = LLMOrchestrator(
+        make_settings(allow_external_llm_for_sensitive=True)
+    )
+
+    with pytest.raises(ProviderError, match="sensitive case data"):
         await orchestrator.generate_text(
-            "private conversation", sensitive=True, user_consent=True, synthetic_demo=False
+            "private case facts",
+            sensitive=True,
+            user_consent=True,
         )
-    assert initialized == []
 
 
 @pytest.mark.asyncio
@@ -114,56 +166,37 @@ async def test_fallback_provider_cannot_bypass_sensitive_data_gate(monkeypatch):
     )
     orchestrator = LLMOrchestrator(settings)
     initialized = []
+
     class FailingMock:
         external = False
+
         async def generate_text(self, prompt, *, model, max_tokens):
             raise ProviderError("temporary mock failure", transient=True)
+
     def provider(name):
         initialized.append(name)
         if name == "mock":
             return FailingMock()
         return FakeExternalProvider()
+
     monkeypatch.setattr(orchestrator, "_provider", provider)
-    with pytest.raises(ProviderError, match="sensitive or private"):
+
+    with pytest.raises(ProviderError, match="sensitive case data"):
         await orchestrator.generate_text(
-            "sensitive facts", sensitive=True, user_consent=True, synthetic_demo=False
+            "sensitive facts",
+            sensitive=True,
+            user_consent=True,
         )
+
     assert initialized == ["mock"]
 
 
-@pytest.mark.asyncio
-async def test_mock_provider_continues_without_consent(monkeypatch):
-    orchestrator = LLMOrchestrator(make_settings(llm_provider="mock"))
-    generation = await orchestrator.generate_text(
-        "development case", sensitive=True, user_consent=False, synthetic_demo=False
-    )
-    assert generation.is_mock is True
-    assert generation.provider == "mock"
+def test_category_sensitivity_defaults_and_explicit_overrides():
+    from app.main import case_requires_protection
 
-
-def test_synthetic_demo_user_allowlist_is_enforced_at_api_boundary(monkeypatch):
-    from app import main
-
-    monkeypatch.setattr(main.settings, "allow_external_llm_for_synthetic", True)
-    monkeypatch.setattr(main.settings, "synthetic_demo_user_ids", ALLOWLISTED_USER)
-    assert main.can_use_external_synthetic_ai(
-        {"id": ALLOWLISTED_USER}, True, True
-    )
-    assert not main.can_use_external_synthetic_ai(
-        {"id": "00000000-0000-4000-8000-000000000002"}, True, True
-    )
-
-
-@pytest.mark.asyncio
-async def test_synthetic_demo_also_requires_non_sensitive_permission(monkeypatch):
-    orchestrator = LLMOrchestrator(make_settings(
-        allow_external_llm_for_non_sensitive=False,
-        allow_external_llm_for_synthetic=True,
-    ))
-    initialized = []
-    monkeypatch.setattr(orchestrator, "_provider", lambda name: initialized.append(name))
-    with pytest.raises(ProviderError, match="disabled for non-sensitive"):
-        await orchestrator.generate_text(
-            "synthetic facts", sensitive=False, user_consent=True, synthetic_demo=True
-        )
-    assert initialized == []
+    assert case_requires_protection("personal_safety_privacy", None) is True
+    assert case_requires_protection("property_real_estate", None) is False
+    assert case_requires_protection("marriage_family", None) is False
+    assert case_requires_protection("digital_fraud_cybercrime", None) is False
+    assert case_requires_protection("personal_safety_privacy", False) is False
+    assert case_requires_protection("property_real_estate", True) is True
