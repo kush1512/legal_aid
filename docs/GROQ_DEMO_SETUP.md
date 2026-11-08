@@ -1,10 +1,21 @@
-# Groq-backed hybrid intake (development demo)
+# Groq setup and diagnostics (local development)
 
-The backend already contains a Groq adapter in `app/llm.py`. No additional provider package is required; `groq` is already in `requirements.txt`. The example model below is listed by Groq as supporting structured outputs.
+The backend includes a Groq chat-completions adapter in `app/llm.py`; the `groq` SDK is already in `requirements.txt`.
 
-## Local environment
+## Why the app may not be using Groq
 
-Keep the backend storage in memory:
+- The default `LLM_PROVIDER=mock` selects the placeholder provider. A Groq key by itself does not switch providers.
+- The frontend must use `NEXT_PUBLIC_API_MODE=real` and point `NEXT_PUBLIC_API_BASE_URL` at the FastAPI server.
+- FastAPI reads its backend `.env` at process startup. Restart it after changing provider settings.
+- External LLM processing is blocked for sensitive cases, private conversations, missing per-request consent, or when `ALLOW_EXTERNAL_LLM_FOR_NON_SENSITIVE=false`.
+- Family and personal-safety categories and detected personal identifiers are automatically treated as sensitive. They cannot be sent to Groq.
+- A transient provider failure can use the configured fallback provider. The response metadata and backend logs identify the provider that actually answered.
+
+## Enable Groq for synthetic, non-sensitive development tests
+
+Use invented facts only. Do not enter real names, phone numbers, addresses, Aadhaar/PAN details, account numbers, documents or actual disputes.
+
+Set these values in the backend `.env`:
 
 ```env
 APP_ENV=development
@@ -12,37 +23,45 @@ DEV_AUTH_BYPASS=true
 MOCK_STORAGE=true
 
 LLM_PROVIDER=groq
-GROQ_API_KEY=your_groq_api_key
 LLM_MODEL=openai/gpt-oss-20b
+GROQ_API_KEY=your_groq_api_key
 
-ALLOW_EXTERNAL_LLM_FOR_SYNTHETIC=true
-SYNTHETIC_DEMO_USER_IDS=00000000-0000-4000-8000-000000000001
+ALLOW_EXTERNAL_LLM_FOR_NON_SENSITIVE=true
 ALLOW_EXTERNAL_LLM_FOR_SENSITIVE=false
+LLM_FALLBACK_ENABLED=false
 ```
 
-Keep `NEXT_PUBLIC_API_MODE=real` in the frontend. The frontend must call the FastAPI backend; the Groq key must never be placed in a `NEXT_PUBLIC_*` variable.
+Keep the Groq key only in the backend environment. Never use a `NEXT_PUBLIC_*` variable for it. Restart FastAPI after changing the environment. Set the frontend to real API mode and confirm that its API base URL points to the same backend.
 
-Restart FastAPI after changing the environment.
+The current Groq model catalogue lists `openai/gpt-oss-20b`; Groq documents JSON Object Mode for JSON responses and Structured Outputs for supported models. This adapter currently uses JSON Object Mode and validates the result against the Pydantic schema in the backend.
 
-## How to test
+## End-to-end smoke test
 
-1. Use made-up facts only. Do not enter real names, addresses, phone numbers, account details, documents or actual disputes.
-2. On the new-case form, select **This is a fictional demonstration case**.
-3. Explicitly enable external-AI consent.
-4. Create the case and send a follow-up message.
-5. The backend sends the conversation to Groq only when the current development user ID is in `SYNTHETIC_DEMO_USER_IDS` and `ALLOW_EXTERNAL_LLM_FOR_SYNTHETIC=true`.
-6. Select **Generate detailed assessment** to invoke the existing assessment endpoint.
+1. Open `GET /api/v1/health`. Confirm the reported provider is `groq`, the selected model is `openai/gpt-oss-20b`, and the key is configured. The endpoint never returns the key.
+2. Use the development account configured by `DEV_AUTH_BYPASS`.
+3. Create a fictional property/consumer case with the sensitive switch off. Do not use family or personal-safety categories for this provider test; those categories are deliberately protected.
+4. Grant external-AI consent in the UI.
+5. Send a follow-up message. Inspect the assistant message's `ai_metadata`: a live response should report `provider: groq` and `is_mock: false`.
+6. Generate an assessment with explicit consent. Inspect its model metadata and confirm that legal citations only come from the verified-source retrieval pipeline.
 
-Real cases remain blocked from external AI by default. Do not enable `ALLOW_EXTERNAL_LLM_FOR_SENSITIVE` for this demo. A Groq API key is a secret and belongs only in the backend environment.
+A case being fictional does not override the sensitivity gate. The backend still enforces category, personal-identifier, private-conversation and per-request consent checks.
 
-## Storage and limitations
+## Diagnosing failures
 
-`MOCK_STORAGE=true` keeps cases, messages, facts and assessments in process memory. They are lost when the backend restarts and are not shared between backend instances. This is for local workflow testing only, not real legal matters or production.
+- `provider: mock`: check `LLM_PROVIDER`, frontend real mode, API base URL and whether the running process was restarted.
+- `GROQ_API_KEY is not configured`: set the key in the backend `.env`; do not put it in frontend configuration.
+- HTTP 403 / `PRIVACY_GATE_BLOCKED`: the case is sensitive/private, consent is missing, or the provider is globally disabled for non-sensitive cases.
+- HTTP 502 / `PROVIDER_UNAVAILABLE`: inspect backend logs for the provider/model failure category and request ID. Check the key, model ID, account limits and network access.
+- `ai_metadata.provider` differs from Groq: a fallback provider handled the request. Disable fallback during diagnosis to expose the primary failure.
 
-The assessment can only cite provisions returned by the existing verified legal-source retrieval pipeline. If no verified matching source is available, the backend must not invent statute names or sections. Generated output is preliminary information, not legal advice or representation.
+The health endpoint reports configuration only; it does not spend tokens or send case data to Groq. A successful authenticated live request is the proof of connectivity.
 
-## Provider documentation
+## Privacy and storage
 
-- [Groq API quickstart](https://console.groq.com/docs/quickstart)
+`MOCK_STORAGE=true` keeps cases/messages in process memory; they disappear when the backend restarts. Use only synthetic test data. Free-tier provider terms can permit retention or model improvement; review the current provider terms before processing any real legal matter. Sensitive cases remain blocked regardless of consent.
+
+## Provider references
+
+- [Groq models](https://console.groq.com/docs/models)
 - [Groq chat completions API](https://console.groq.com/docs/api-reference)
-- [Groq structured outputs](https://console.groq.com/docs/structured-outputs)
+- [Groq structured outputs and JSON modes](https://console.groq.com/docs/structured-outputs)

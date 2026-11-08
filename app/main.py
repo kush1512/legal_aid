@@ -336,14 +336,31 @@ async def transcribe_audio(
 
 @app.get("/api/v1/health", tags=["system"])
 async def health():
+    provider = settings.llm_provider
+    provider_key_configured = {
+        "mock": True,
+        "groq": bool(settings.groq_api_key),
+        "gemini": bool(settings.gemini_api_key),
+        "openai": bool(settings.openai_api_key),
+        "anthropic": bool(settings.anthropic_api_key),
+    }.get(provider, False)
     return {
         "status":"ok","version":settings.app_version,"environment":settings.app_env,
         "dependencies":{
             "database":"development_memory" if storage.is_mock else (
                 "configured" if settings.supabase_url and settings.effective_supabase_publishable_key else "not_configured"
             ),
-            "llm":"mock" if settings.llm_provider=="mock" else "configured",
+            "llm":"mock" if provider=="mock" else ("configured" if provider_key_configured else "missing_credentials"),
             "embeddings":settings.embedding_provider
+        },
+        "llm_config":{
+            "provider":provider,
+            "model":settings.llm_model,
+            "provider_key_configured":provider_key_configured,
+            "fallback_enabled":bool(settings.llm_fallback_enabled and settings.fallback_llm_provider),
+            "fallback_provider":settings.fallback_llm_provider or None,
+            "external_non_sensitive_enabled":settings.allow_external_llm_for_non_sensitive,
+            "external_sensitive_enabled":settings.allow_external_llm_for_sensitive,
         }
     }
 
