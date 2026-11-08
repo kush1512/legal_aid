@@ -18,6 +18,7 @@ import { CaseSupportPanel } from "@/components/CaseSupportPanel";
 
 type Tab = "assessment" | "conversation" | "timeline" | "documents";
 const REVIEW_PROMPT = "Please review my description and tell me what else you need to know.";
+const NEXT_STEPS_PROMPT = "Based only on the facts I have shared in this case, give me a prioritised, practical action plan for what I should do next under Indian law. Separate immediate steps (today/next 48 hours), steps for the next 7 days, and later options. For each step, explain what to do, where or with whom to do it, what evidence or documents to preserve, and any important deadline or risk. Identify which facts are still missing. Use applicable verified legal sources where available, distinguish general information from legal advice, and do not invent procedures, deadlines, authorities or remedies.";
 
 function CaseDetail() {
   const { id } = useParams<{ id: string }>();
@@ -26,7 +27,6 @@ function CaseDetail() {
   const c = useAsync(() => api.getCase(id), [id]);
   const [tab, setTab] = useState<Tab>((sp.get("tab") as Tab) || "assessment");
   const [messages, setMessages] = useState<CaseMessage[]>([]);
-  const [followUps, setFollowUps] = useState<string[]>([]);
   const [status, setStatus] = useState<string | null>(null);
   const [consent, setConsent] = useState(false);
   const [consentLoaded, setConsentLoaded] = useState(false);
@@ -58,7 +58,6 @@ function CaseDetail() {
       const r: SendMessageResponse = await api.sendMessage(id, { content: content.trim(), language: lang, input_mode: mode, external_ai_consent: consent });
       appendToTranscript(id, r.user_message, r.assistant_message);
       setMessages(loadTranscript(id));
-      setFollowUps(r.follow_up_questions);
       setStatus(r.case_status);
       writeJson(consentKey(id), { consent }, "session");
       c.reload();
@@ -149,10 +148,10 @@ function CaseDetail() {
         {tab === "assessment" && <CaseSupportPanel caseInfo={cs} />}
 
         {tab === "conversation" && (
-          <Conversation messages={messages} followUps={followUps} draft={draft} setDraft={setDraft} send={() => send(draft, inputMode)} sending={sending}
+          <Conversation messages={messages} draft={draft} setDraft={setDraft} send={() => send(draft, inputMode)} sendNextSteps={() => send(NEXT_STEPS_PROMPT)} sending={sending}
             sendError={sendError} consent={consent} setConsent={setConsent} sensitive={cs.sensitive} caseId={id}
             onVoice={(t) => { setDraft((d) => (d ? d + "\n" : "") + t); setInputMode("voice_transcription"); }}
-            onReview={() => send(REVIEW_PROMPT)} onPick={(q) => setDraft((d) => (d ? d + "\n" : "") + q + " ")} />
+            onReview={() => send(REVIEW_PROMPT)} />
         )}
 
         {tab === "timeline" && <Timeline createdAt={cs.created_at} messages={messages} assessmentAt={assessment.data?.assessment.generated_at} docs={docs.data?.items ?? []} />}
@@ -182,8 +181,8 @@ function CaseDetail() {
 const BackLink = () => <Link href="/cases" className="mb-4 inline-flex items-center gap-1 text-sm font-semibold text-teal-700"><ArrowLeft className="h-4 w-4" aria-hidden />My cases</Link>;
 
 function Conversation(p: {
-  messages: CaseMessage[]; followUps: string[]; draft: string; setDraft: (s: string) => void; send: () => void; sending: boolean; sendError: unknown;
-  consent: boolean; setConsent: (b: boolean) => void; sensitive: boolean; caseId: string; onVoice: (t: string) => void; onReview: () => void; onPick: (q: string) => void;
+  messages: CaseMessage[]; draft: string; setDraft: (s: string) => void; send: () => void; sendNextSteps: () => void; sending: boolean; sendError: unknown;
+  consent: boolean; setConsent: (b: boolean) => void; sensitive: boolean; caseId: string; onVoice: (t: string) => void; onReview: () => void;
 }) {
   const bottom = useRef<HTMLDivElement>(null);
   useEffect(() => { bottom.current?.scrollIntoView({ block: "end" }); }, [p.messages.length, p.sending]);
@@ -209,14 +208,22 @@ function Conversation(p: {
 
       {!hasReply && p.messages.length > 0 && !p.sending && (
         <Notice tone="info" title="The assistant hasn’t reviewed your description yet"><Button size="sm" className="mt-2" onClick={p.onReview}>Get follow-up questions</Button></Notice>)}
-      {p.followUps.length > 0 && (
-        <div><p className="mb-2 text-sm font-semibold">Suggested questions to answer</p>
-          <ul className="flex flex-wrap gap-2">{p.followUps.map((q) => <li key={q}><button type="button" onClick={() => p.onPick(q)} className="rounded-full border border-teal/40 bg-mist/60 px-3 py-1.5 text-left text-sm hover:bg-mist">{q}</button></li>)}</ul></div>)}
+      {hasReply && !p.sending && (
+        <section className="rounded-xl2 border border-teal/25 bg-white p-4 shadow-card" aria-label="Quick actions">
+          <p className="text-sm font-semibold">What would you like to do next?</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Button size="sm" onClick={p.sendNextSteps} loading={p.sending}>Get next legal steps</Button>
+            <Button size="sm" href="/lawyers" variant="secondary">Contact a lawyer · View profiles</Button>
+            <Button size="sm" href={`/studio?case=${p.caseId}`} variant="secondary">Prepare a document</Button>
+          </div>
+        </section>
+      )}
       {err && <Notice tone="danger" title={err.title}>{err.hint}</Notice>}
 
       <form onSubmit={(e) => { e.preventDefault(); p.send(); }} className="space-y-3 rounded-xl2 border border-navy/10 bg-white p-4 shadow-card">
         <label htmlFor="msg" className="text-sm font-semibold">Add details or answer a question</label>
-        <textarea id="msg" rows={3} className={inputCls} value={p.draft} onChange={(e) => p.setDraft(e.target.value)} maxLength={12000} />
+        <textarea id="msg" rows={3} className={inputCls} value={p.draft} onChange={(e) => p.setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); if (p.draft.trim() && !p.sending) p.send(); } }} maxLength={12000} />
+        <p className="text-xs text-navy/60">Press Enter to send · Shift + Enter for a new line</p>
         <VoiceRecorder caseId={p.caseId} consent={p.consent} onTranscript={p.onVoice} disabled={p.sending} />
         <ConsentCheckbox id="msg-consent" checked={p.consent} onChange={p.setConsent}>
           Allow an external AI service to process this message.{p.sensitive && <> This case is <strong>sensitive</strong>; without this, no AI service is contacted.</>}
