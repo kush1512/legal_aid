@@ -25,7 +25,7 @@ export default function LawyersPage() {
 
   return (
     <>
-      <PageHeader title="Find a lawyer" subtitle="Only lawyers whose credentials have been verified are listed. Browsing doesn’t share anything about your case." />
+      <PageHeader title="Find a lawyer" subtitle={isMock ? "Synthetic demonstration profiles only. These are fictional personas, not real lawyers, and their credentials have not been verified." : "Only lawyers whose credentials have been verified are listed. Browsing doesn’t share anything about your case."} />
       <form role="search" onSubmit={(e) => e.preventDefault()} className="mb-5 space-y-3 rounded-xl2 border border-navy/10 bg-white p-4 shadow-card">
         <Field id="ltxt" label="Search by name or keyword"><div className="relative"><Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-navy/50" aria-hidden /><input id="ltxt" className={`${inputCls} pl-9`} value={text} onChange={(e) => setText(e.target.value)} /></div></Field>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -43,7 +43,7 @@ export default function LawyersPage() {
 
       {res.loading ? <LoadingBlock rows={3} /> : res.error ? <ErrorState error={res.error} onRetry={res.reload} /> : items.length === 0 ? <EmptyState icon={Users} title="No lawyers match">Try widening your filters, such as removing the city or language.</EmptyState> : (
         <>
-          <p className="mb-2 text-sm text-navy/70" aria-live="polite">{items.length} verified {items.length === 1 ? "lawyer" : "lawyers"}</p>
+          <p className="mb-2 text-sm text-navy/70" aria-live="polite">{items.length} {isMock ? "synthetic demo profiles" : `verified ${items.length === 1 ? "lawyer" : "lawyers"}`}</p>
           <ul className="space-y-3">{items.map((l) => <LawyerCard key={l.id} l={l} />)}</ul>
         </>)}
     </>
@@ -54,7 +54,7 @@ function LawyerCard({ l }: { l: Lawyer }) {
   const x = isMock ? LAWYER_EXTRAS[l.id] : undefined;
   return (
     <li><Link href={`/lawyers/${l.id}`} className="block rounded-xl2 border border-navy/10 bg-white p-4 shadow-card hover:border-teal/60">
-      <div className="flex flex-wrap items-center gap-2"><h3 className="font-display text-lg font-semibold">{l.display_name}</h3>{l.verification_status === "verified" && <Badge tone="teal" icon={BadgeCheck}>Verified</Badge>}</div>
+      <div className="flex flex-wrap items-center gap-2"><h3 className="font-display text-lg font-semibold">{l.display_name}</h3>{isMock ? <Badge tone="amber">Synthetic demo · not verified</Badge> : l.verification_status === "verified" && <Badge tone="teal" icon={BadgeCheck}>Verified</Badge>}</div>
       <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-navy/80">
         {(l.city || l.state) && <span className="inline-flex items-center gap-1"><MapPin className="h-3.5 w-3.5" aria-hidden />{[l.city, l.state].filter(Boolean).join(", ")}</span>}
         <span>{l.languages.map(languageLabel).join(", ")}</span>
