@@ -41,17 +41,17 @@ export const SAMPLE_CASE_CONVERSATIONS: SampleCase[] = [
     ]
   },
   {
-    id: "C03", category: "property_real_estate", title: "Employer has withheld two months of salary",
-    summary: "An employee has followed up with HR but has not received a clear payment date.",
+    id: "C03", category: "property_real_estate", title: "Landlord asks tenant to vacate before the agreement ends",
+    summary: "A tenant receives a request to leave early and wants to understand the agreement and communications.",
     turns: [
-      { role: "user", content: "My company has not paid my salary for the last two months. I am still working there." },
-      { role: "assistant", content: "Are you employed full-time, on contract, or through a staffing agency?" },
-      { role: "user", content: "Full-time. I joined in January this year." },
-      { role: "assistant", content: "Which two salary months are pending, and have colleagues also faced the same delay?" },
-      { role: "user", content: "September and October. A few people in my team also have not been paid." },
-      { role: "assistant", content: "What has HR or your manager said when you asked about the pending salary?" },
-      { role: "user", content: "HR replied on email that finance is processing it, but they have not given any date." },
-      { role: "assistant", content: "Do you have your appointment letter, payslips and the email follow-ups? Also, which state do you work in?" }
+      { role: "user", content: "My landlord is asking me to leave the flat even though my rental agreement has not ended." },
+      { role: "assistant", content: "When does your current agreement end, and how long have you been staying there?" },
+      { role: "user", content: "It ends in March next year. I moved in around eight months ago." },
+      { role: "assistant", content: "Did the landlord give a reason for asking you to leave early?" },
+      { role: "user", content: "He says his relatives are coming and he needs the flat. He told me on a phone call." },
+      { role: "assistant", content: "Does your written agreement mention early termination or a notice period?" },
+      { role: "user", content: "There is a two-month notice clause, but I have not received any written notice." },
+      { role: "assistant", content: "Have you replied to the landlord in writing, and do you have a copy of the signed agreement and rent-payment records?" }
     ]
   },
   {
