@@ -26,7 +26,7 @@ function Intake() {
   const [language, setLanguage] = useState(prefs.language);
   const [state, setState] = useState("");
   const [district, setDistrict] = useState("");
-  const [sensitive, setSensitive] = useState(prefs.defaultSensitive);
+  const [sensitive, setSensitive] = useState(category === "personal_safety_privacy");
   const [consent, setConsent] = useState(prefs.defaultExternalAiConsent);
   const [syntheticDemo, setSyntheticDemo] = useState(false);
   const [files, setFiles] = useState<File[]>([]);
@@ -71,7 +71,7 @@ function Intake() {
         <div role="radiogroup" aria-label="Category" className="grid gap-2.5 sm:grid-cols-2">
           {CATEGORIES.map((c) => (
             <label key={c.value} className={cn("flex cursor-pointer items-start gap-3 rounded-xl2 border bg-white p-3.5", category === c.value ? "border-teal ring-2 ring-teal/40" : "border-navy/15 hover:border-teal/60")}>
-              <input type="radio" name="category" value={c.value} checked={category === c.value} onChange={() => setCategory(c.value)} className="sr-only" />
+              <input type="radio" name="category" value={c.value} checked={category === c.value} onChange={() => { setCategory(c.value); setSensitive(c.value === "personal_safety_privacy"); }} className="sr-only" />
               <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-mist text-teal-700"><CategoryIcon name={c.icon} className="h-4 w-4" /></span>
               <span><span className="block text-sm font-semibold">{c.label}</span><span className="block text-xs text-navy/75">{c.blurb}</span></span>
             </label>
@@ -122,10 +122,10 @@ function Intake() {
       <section aria-labelledby="s4" className="space-y-4">
         <h2 id="s4" className="flex items-center gap-2 text-base font-semibold"><Lock className="h-4 w-4 text-teal-700" aria-hidden />4. Privacy and consent</h2>
         <Switch id="sensitive" checked={sensitive} onChange={setSensitive} label="Treat this case as sensitive"
-          description="Turn this on for personal, confidential, or otherwise sensitive details. Sensitive cases are blocked from external AI even if consent is selected." />
+          description="Personal safety & privacy cases are sensitive by default. You can turn this on for any case, or turn it off for this category. Sensitive cases are never sent to external AI providers." />
         <Switch id="synthetic-demo" checked={syntheticDemo} onChange={setSyntheticDemo} label="This is a fictional demonstration case" description="Only select this for made-up test facts. When enabled, an allowlisted development account may send this case to Groq after you grant consent. Never use real names, addresses, account numbers or actual disputes." />
         <ConsentCheckbox id="consent" checked={consent} onChange={setConsent}>
-          <strong>Allow an external AI service to process this case.</strong> If ticked, your description and later messages may be sent to an AI provider to prepare follow-up questions and an assessment. External AI is available only for cases the backend classifies as non-sensitive. Sensitive categories and detected personal identifiers are always blocked. Leave it unticked to keep everything off external services; the assistant will then offer limited help. You can change this per message.
+          <strong>Allow an external AI service to process this case.</strong> If ticked, your description and later messages may be sent to an AI provider to prepare follow-up questions and an assessment. External AI is available only for cases the backend classifies as non-sensitive. Only cases marked sensitive are blocked. Leave it unticked to keep everything off external services; the assistant will then offer limited help. You can change this per message.
         </ConsentCheckbox>
         <p className="text-xs text-navy/70">Your name and contact details are not part of this form and are never shown publicly. Cases are visible only to your account.</p>
       </section>
