@@ -152,3 +152,18 @@ def test_synthetic_demo_user_allowlist_is_enforced_at_api_boundary(monkeypatch):
     assert not main.can_use_external_synthetic_ai(
         {"id": "00000000-0000-4000-8000-000000000002"}, True, True
     )
+
+
+@pytest.mark.asyncio
+async def test_synthetic_demo_also_requires_non_sensitive_permission(monkeypatch):
+    orchestrator = LLMOrchestrator(make_settings(
+        allow_external_llm_for_non_sensitive=False,
+        allow_external_llm_for_synthetic=True,
+    ))
+    initialized = []
+    monkeypatch.setattr(orchestrator, "_provider", lambda name: initialized.append(name))
+    with pytest.raises(ProviderError, match="disabled for non-sensitive"):
+        await orchestrator.generate_text(
+            "synthetic facts", sensitive=False, user_consent=True, synthetic_demo=True
+        )
+    assert initialized == []
