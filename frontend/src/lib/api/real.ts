@@ -71,6 +71,7 @@ export const realApi: LegalAidApi = {
   createCase: (req) => request("/cases", { json: req }),
   listCases: (q = {}) => request(`/cases${qs({ ...q })}`),
   getCase: (id) => request(`/cases/${encodeURIComponent(id)}`),
+  updateCasePrivacy: (id, privateConversation) => request(`/cases/${encodeURIComponent(id)}/privacy`, { method: "PATCH", json: { private_conversation: privateConversation } }),
   sendMessage: (id, req) => request(`/cases/${encodeURIComponent(id)}/messages`, { json: req }),
   getAssessment: (id) => request(`/cases/${encodeURIComponent(id)}/assessment`),
   generateAssessment: (id, req) => request(`/cases/${encodeURIComponent(id)}/assessment`, { method: "POST", json: req }),

@@ -44,6 +44,7 @@ class Settings(BaseSettings):
 
     # External LLM processing is off unless explicitly enabled for an allowlisted demo user.
     allow_external_llm_for_synthetic: bool = False
+    allow_external_llm_for_non_sensitive: bool = True
     synthetic_demo_user_ids: str = ""
     admin_user_ids: str = ""
     # Kept as a separate, stricter opt-in for any future sensitive-data processor.

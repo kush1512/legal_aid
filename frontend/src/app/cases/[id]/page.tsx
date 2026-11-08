@@ -35,6 +35,7 @@ function CaseDetail() {
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<unknown>(null);
   const [assessmentBusy, setAssessmentBusy] = useState(false);
+  const [privacyBusy, setPrivacyBusy] = useState(false);
   const [assessmentError, setAssessmentError] = useState<string | null>(null);
   const ranReview = useRef(false);
   const assessment = useAsync(() => api.getAssessment(id), [id, status]);
@@ -92,6 +93,19 @@ function CaseDetail() {
 
   const localDocs = useMemo(() => (isMock ? readJson<Array<{ name: string; size: number; at: string }>>(localDocsKey(id), [], "session") : []), [id]);
 
+  const togglePrivateConversation = useCallback(async () => {
+    if (!c.data) return;
+    setPrivacyBusy(true);
+    try {
+      await api.updateCasePrivacy(id, !Boolean(c.data.case.private_conversation));
+      await c.reload();
+    } catch (error) {
+      setAssessmentError(describeError(error).hint);
+    } finally {
+      setPrivacyBusy(false);
+    }
+  }, [c, id]);
+
   if (c.loading && !c.data) return <LoadingBlock rows={3} />;
   if (c.error || !c.data) return <><BackLink /><ErrorState error={c.error} onRetry={c.reload} /></>;
   const cs = c.data.case;
@@ -109,6 +123,16 @@ function CaseDetail() {
         </div>
         <h1 className="text-2xl font-semibold sm:text-3xl">{cs.title}</h1>
         <div className="max-w-md"><ProgressBar value={meta.progress} label={`Case progress: ${meta.label}`} /></div>
+        <div className="rounded-xl border border-navy/10 bg-white p-4 shadow-card">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="flex items-center gap-2 text-sm font-semibold"><Lock className="h-4 w-4" aria-hidden />Private conversation</p>
+              <p className="mt-1 max-w-2xl text-xs text-navy/70">{cs.private_conversation ? "On: this case will not be sent to an external LLM or speech provider." : "Off: external AI is still blocked for sensitive cases. This setting adds an extra block for every case."}</p>
+            </div>
+            <Button size="sm" variant={cs.private_conversation ? "primary" : "secondary"} loading={privacyBusy} onClick={togglePrivateConversation}>{cs.private_conversation ? "Turn private mode off" : "Turn private mode on"}</Button>
+          </div>
+          {cs.sensitive && <p className="mt-2 text-xs font-medium text-teal-800">Sensitive-case protection remains active regardless of this setting.</p>}
+        </div>
       </header>
 
       <Tabs<Tab> label="Case sections" value={tab} onChange={setTab} tabs={[
