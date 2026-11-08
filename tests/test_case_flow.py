@@ -126,18 +126,29 @@ def test_case_private_conversation_can_be_enabled_and_disabled(client,auth_heade
     assert disabled.json()["case"]["private_conversation"] is False
 
 
-def test_sensitive_category_and_personal_identifiers_are_protected(client,auth_headers):
-    family=client.post("/api/v1/cases",headers=auth_headers,json={
-        "category":"marriage_family",
-        "description":"A family matter requiring confidential guidance.",
-        "sensitive":False
+def test_sensitive_category_and_personal_identifiers_are_protected(client, auth_headers):
+    # Marriage/family is non-sensitive by default and explicit false is respected.
+    family = client.post("/api/v1/cases", headers=auth_headers, json={
+        "category": "marriage_family",
+        "description": "A family matter requiring confidential guidance.",
+        "sensitive": False
     })
-    assert family.status_code==201
-    assert family.json()["case"]["sensitive"] is True
-    pii=client.post("/api/v1/cases",headers=auth_headers,json={
-        "category":"property_real_estate",
-        "description":"My contact number is 9876543210 and I need help.",
-        "sensitive":False
+    assert family.status_code == 201
+    assert family.json()["case"]["sensitive"] is False
+
+    # Personal identifiers do not override an explicit user choice.
+    pii = client.post("/api/v1/cases", headers=auth_headers, json={
+        "category": "property_real_estate",
+        "description": "My contact number is 9876543210 and I need help.",
+        "sensitive": False
     })
-    assert pii.status_code==201
-    assert pii.json()["case"]["sensitive"] is True
+    assert pii.status_code == 201
+    assert pii.json()["case"]["sensitive"] is False
+
+    # Personal safety/privacy defaults to sensitive when no choice is supplied.
+    safety = client.post("/api/v1/cases", headers=auth_headers, json={
+        "category": "personal_safety_privacy",
+        "description": "I need confidential guidance."
+    })
+    assert safety.status_code == 201
+    assert safety.json()["case"]["sensitive"] is True
